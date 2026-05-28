@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-dark:    #0F1419;
+      --bg-panel:   #1A2129;
+      --bg-card:    #232B36;
+      --border:     #374151;
+      --text:       #F5F5F0;
+      --text-mute:  #9CA3AF;
+      --amber:      #F59E0B;
+      --amber-soft: #FCD34D;
+      --red:        #DC2626;
+      --green:      #10B981;
+      --blue:       #3B82F6;
+      --orange:     #FB923C;
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid var(--amber);
+    }
+
+    .header h1 {
+      font-family: Georgia, serif;
+      font-size: 26px;
+      font-weight: bold;
+    }
+    .header h1 .accent { color: var(--amber); font-style: italic; }
+
+    .header .subtitle {
+      color: var(--text-mute);
+      font-size: 13px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      font-family: 'Consolas', monospace;
+    }
+
+    /* Layout principal: video a la izquierda, panel de métricas a la derecha */
+    .main {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .main { grid-template-columns: 1fr; }
+    }
+
+    /* Video */
+    .video-wrap {
+      background: var(--bg-panel);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 2px solid var(--border);
+      position: relative;
+    }
+    .video-wrap img {
+      width: 100%;
+      display: block;
+    }
+    .video-label {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      color: var(--amber-soft);
+    }
+
+    /* Panel de estado grande */
+    .status-panel {
+      background: var(--bg-panel);
+      border-radius: 12px;
+      padding: 24px;
+      border: 2px solid var(--border);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .status-panel.alert {
+      border-color: var(--red);
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+      50%      { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+    }
+
+    .level-badge {
+      display: inline-block;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 14px;
+      letter-spacing: 2px;
+      font-family: Consolas, monospace;
+      margin-bottom: 8px;
+    }
+    .level-NORMAL      { background: rgba(16, 185, 129, 0.2); color: var(--green); }
+    .level-CANSADO     { background: rgba(245, 158, 11, 0.2); color: var(--amber); }
+    .level-SOMNOLIENTO { background: rgba(251, 146, 60, 0.2); color: var(--orange); }
+    .level-ALERTA      { background: rgba(220, 38, 38, 0.25); color: var(--red); }
+
+    .level-desc {
+      font-family: Georgia, serif;
+      font-size: 24px;
+      margin-bottom: 18px;
+      min-height: 32px;
+    }
+
+    /* Barra de fatiga */
+    .fatigue-bar {
+      margin-bottom: 22px;
+    }
+    .fatigue-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-mute);
+      margin-bottom: 6px;
+      font-family: Consolas, monospace;
+      letter-spacing: 1px;
+    }
+    .fatigue-track {
+      height: 14px;
+      background: var(--bg-card);
+      border-radius: 7px;
+      overflow: hidden;
+      position: relative;
+    }
+    .fatigue-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--green);
+      transition: width 0.3s ease, background 0.3s ease;
+      border-radius: 7px;
+    }
+
+    /* Grid de métricas */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .metric {
+      background: var(--bg-card);
+      padding: 12px 14px;
+      border-radius: 8px;
+      border-left: 3px solid var(--border);
+      transition: border-color 0.3s;
+    }
+    .metric.active { border-left-color: var(--amber); }
+    .metric.warn   { border-left-color: var(--red); }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-mute);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+      font-family: Consolas, monospace;
+    }
+    .metric-value {
+      font-size: 22px;
+      font-weight: bold;
+      font-family: Consolas, monospace;
+    }
+    .metric-sub {
+      font-size: 11px;
+      color: var(--text-mute);
+      margin-top: 2px;
+    }
+
+    /* Botones */
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    button {
+      flex: 1;
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 1px;
+    }
+    button:hover {
+      background: var(--amber);
+      color: var(--bg-dark);
+      border-color: var(--amber);
+    }
+
+    /* Status pill (calibrando, sin rostro) */
+    .pill {
+      display: inline-block;
+      background: var(--bg-card);
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--text-mute);
+      font-family: Consolas, monospace;
+      letter-spacing: 1px;
+    }
+    .pill.ok       { color: var(--green); }
+    .pill.calib    { color: var(--amber); }
+    .pill.no-face  { color: var(--red); }
+
+    /* Footer info */
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      color: var(--text-mute);
+      font-size: 12px;
+      font-family: Consolas, monospace;
+    }
+
+    /* Indicadores binarios pequeños */
+    .indicators {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .indicator {
+      background: var(--bg-card);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: Consolas, monospace;
+      color: var(--text-mute);
+      border: 1px solid var(--border);
+    }
+    .indicator.on {
+      background: rgba(220, 38, 38, 0.2);
+      color: var(--red);
+      border-color: var(--red);
+    }
+
+    .lang-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-mute);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: all 0.2s;
+      margin-left: 10px;
+    }
+    .lang-btn:hover {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <div class="header">
+      <div>
+        <h1>Sistema de Detección <span class="accent">de Somnolencia</span></h1>
+        <div class="subtitle">Visión Multimodal en Tiempo Real</div>
+      </div>
+      <div>
+        <span id="connectionPill" class="pill">CONECTANDO...</span>
+        <button class="lang-btn" id="langBtn" onclick="toggleLang()">EN</button>
+      </div>
+    </div>
+
+    <div class="main">
+
+      <!-- Video -->
+      <div class="video-wrap">
+        <img src="/video_feed" alt="Video en vivo">
+        <div class="video-label">📹 STREAM EN VIVO · /video_feed</div>
+      </div>
+
+      <!-- Panel de estado -->
+      <div id="statusPanel" class="status-panel">
+        <span id="levelBadge" class="level-badge level-NORMAL">NORMAL</span>
+        <div id="levelDesc" class="level-desc">Conductor atento</div>
+
+        <div class="fatigue-bar">
+          <div class="fatigue-label">
+            <span>NIVEL DE FATIGA</span>
+            <span id="fatigueScore">0.00</span>
+          </div>
+          <div class="fatigue-track">
+            <div id="fatigueFill" class="fatigue-fill"></div>
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <div id="m_ear" class="metric">
+            <div class="metric-label">EAR (OJOS)</div>
+            <div class="metric-value" id="v_ear">0.00</div>
+            <div class="metric-sub" id="s_ear">umbral 0.22</div>
+          </div>
+          <div id="m_perclos" class="metric">
+            <div class="metric-label">PERCLOS</div>
+            <div class="metric-value" id="v_perclos">0%</div>
+            <div class="metric-sub">% cierre / 30s</div>
+          </div>
+          <div id="m_mar" class="metric">
+            <div class="metric-label">MAR (BOCA)</div>
+            <div class="metric-value" id="v_mar">0.00</div>
+            <div class="metric-sub" id="s_mar">cerrada</div>
+          </div>
+          <div id="m_yawns" class="metric">
+            <div class="metric-label">BOSTEZOS / MIN</div>
+            <div class="metric-value" id="v_yawns">0</div>
+            <div class="metric-sub">último minuto</div>
+          </div>
+          <div id="m_blinks" class="metric">
+            <div class="metric-label">PARPADEOS / MIN</div>
+            <div class="metric-value" id="v_blinks">0</div>
+            <div class="metric-sub">normal: 15-20</div>
+          </div>
+          <div id="m_pitch" class="metric">
+            <div class="metric-label">PITCH CABEZA</div>
+            <div class="metric-value" id="v_pitch">0°</div>
+            <div class="metric-sub" id="s_pitch">normal</div>
+          </div>
+        </div>
+
+        <div class="indicators">
+          <div id="i_closed"  class="indicator">OJOS CERRADOS</div>
+          <div id="i_yawn"    class="indicator">BOSTEZO</div>
+          <div id="i_nod"     class="indicator">CABECEO</div>
+        </div>
+
+        <div class="controls">
+          <button onclick="resetAlert()">⟲  REINICIAR</button>
+          <button onclick="recalibrate()">⚙  RECALIBRAR</button>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="footer">
+      detector.py · EAR + PERCLOS + MAR + Head Pose + Blink Rate
+    </div>
+
+  </div>
+
+  <script>
+    let lang = "es";
+
+    const T = {
+      es: {
+        title: 'Sistema de Detección <span class="accent">de Somnolencia</span>',
+        subtitle: "Visión Multimodal en Tiempo Real",
+        connecting: "CONECTANDO...",
+        online: "ACTIVO",
+        noFace: "SIN ROSTRO",
+        disconnected: "DESCONECTADO",
+        calibrating: "CALIBRANDO",
+        fatigueLevel: "NIVEL DE FATIGA",
+        levels: { NORMAL: "Conductor atento", CANSADO: "Signos leves de fatiga", SOMNOLIENTO: "Atención: fatiga elevada", ALERTA: "¡DESPIERTA! Detén el vehículo" },
+        ear: "EAR (OJOS)", perclos: "PERCLOS", mar: "MAR (BOCA)", yawns: "BOSTEZOS / MIN", blinks: "PARPADEOS / MIN", pitch: "PITCH CABEZA",
+        earSub: "umbral", marClosed: "cerrada", marYawn: "BOSTEZANDO", lastMin: "último minuto", normalRange: "normal: 15-20", pitchNormal: "normal", pitchNod: "CABECEO", closurePct: "% cierre / 30s",
+        iClosed: "OJOS CERRADOS", iYawn: "BOSTEZO", iNod: "CABECEO",
+        reset: "⟲  REINICIAR", recalib: "⚙  RECALIBRAR",
+        footer: "detector.py · EAR + PERCLOS + MAR + Head Pose + Blink Rate",
+        videoLabel: "📹 STREAM EN VIVO · /video_feed",
+        btnLang: "EN",
+      },
+      en: {
+        title: 'Drowsiness Detection <span class="accent">System</span>',
+        subtitle: "Real-Time Multimodal Vision",
+        connecting: "CONNECTING...",
+        online: "ACTIVE",
+        noFace: "NO FACE",
+        disconnected: "DISCONNECTED",
+        calibrating: "CALIBRATING",
+        fatigueLevel: "FATIGUE LEVEL",
+        levels: { NORMAL: "Driver alert", CANSADO: "Mild fatigue signs", SOMNOLIENTO: "Warning: high fatigue", ALERTA: "WAKE UP! Stop the vehicle" },
+        ear: "EAR (EYES)", perclos: "PERCLOS", mar: "MAR (MOUTH)", yawns: "YAWNS / MIN", blinks: "BLINKS / MIN", pitch: "HEAD PITCH",
+        earSub: "threshold", marClosed: "closed", marYawn: "YAWNING", lastMin: "last minute", normalRange: "normal: 15-20", pitchNormal: "normal", pitchNod: "NODDING", closurePct: "% closure / 30s",
+        iClosed: "EYES CLOSED", iYawn: "YAWN", iNod: "HEAD NOD",
+        reset: "⟲  RESET", recalib: "⚙  RECALIBRATE",
+        footer: "detector.py · EAR + PERCLOS + MAR + Head Pose + Blink Rate",
+        videoLabel: "📹 LIVE STREAM · /video_feed",
+        btnLang: "ES",
+      },
+    };
+
+    function t(key) { return T[lang][key] || key; }
+
+    function toggleLang() {
+      lang = lang === "es" ? "en" : "es";
+      applyLang();
+    }
+
+    function applyLang() {
+      document.querySelector(".header h1").innerHTML = t("title");
+      document.querySelector(".header .subtitle").textContent = t("subtitle");
+      document.querySelector(".fatigue-label span").textContent = t("fatigueLevel");
+      document.querySelector("#m_ear .metric-label").textContent = t("ear");
+      document.querySelector("#m_perclos .metric-label").textContent = t("perclos");
+      document.querySelector("#m_perclos .metric-sub").textContent = t("closurePct");
+      document.querySelector("#m_mar .metric-label").textContent = t("mar");
+      document.querySelector("#m_yawns .metric-label").textContent = t("yawns");
+      document.querySelector("#m_yawns .metric-sub").textContent = t("lastMin");
+      document.querySelector("#m_blinks .metric-label").textContent = t("blinks");
+      document.querySelector("#m_blinks .metric-sub").textContent = t("normalRange");
+      document.querySelector("#m_pitch .metric-label").textContent = t("pitch");
+      document.getElementById("i_closed").textContent = t("iClosed");
+      document.getElementById("i_yawn").textContent = t("iYawn");
+      document.getElementById("i_nod").textContent = t("iNod");
+      document.querySelectorAll(".controls button")[0].innerHTML = t("reset");
+      document.querySelectorAll(".controls button")[1].innerHTML = t("recalib");
+      document.querySelector(".footer").textContent = t("footer");
+      document.querySelector(".video-label").textContent = t("videoLabel");
+      document.getElementById("langBtn").textContent = t("btnLang");
+    }
+
+    async function fetchStatus() {
+      try {
+        const res  = await fetch("/status");
+        const data = await res.json();
+        update(data);
+        setPill("ok", t("online"));
+      } catch (e) {
+        setPill("no-face", t("disconnected"));
+      }
+    }
+
+    function setPill(cls, text) {
+      const p = document.getElementById("connectionPill");
+      p.className = "pill " + cls;
+      p.textContent = text;
+    }
+
+    function update(s) {
+      if (!s.face_detected) {
+        setPill("no-face", t("noFace"));
+      } else if (s.calibrating) {
+        const pct = Math.round((s.calib_progress || 0) * 100);
+        setPill("calib", `${t("calibrating")} ${pct}%`);
+      } else {
+        setPill("ok", t("online"));
+      }
+
+      const level = s.level || "NORMAL";
+      const badge = document.getElementById("levelBadge");
+      badge.textContent = level;
+      badge.className = "level-badge level-" + level;
+      document.getElementById("levelDesc").textContent = t("levels")[level] || "";
+
+      const panel = document.getElementById("statusPanel");
+      panel.classList.toggle("alert", level === "ALERTA");
+
+      const score = s.fatigue_score || 0;
+      document.getElementById("fatigueScore").textContent = score.toFixed(2);
+      const fill = document.getElementById("fatigueFill");
+      fill.style.width = (score * 100) + "%";
+      let barColor = "var(--green)";
+      if (level === "CANSADO")     barColor = "var(--amber)";
+      if (level === "SOMNOLIENTO") barColor = "var(--orange)";
+      if (level === "ALERTA")      barColor = "var(--red)";
+      fill.style.background = barColor;
+
+      document.getElementById("v_ear").textContent = (s.ear || 0).toFixed(2);
+      document.getElementById("s_ear").textContent = t("earSub") + " " + (s.ear_threshold || 0.22).toFixed(2);
+      setMetric("m_ear", s.eyes_closed ? "warn" : "");
+
+      const perclosPct = Math.round((s.perclos || 0) * 100);
+      document.getElementById("v_perclos").textContent = perclosPct + "%";
+      setMetric("m_perclos", perclosPct > 40 ? "warn" : (perclosPct > 20 ? "active" : ""));
+
+      document.getElementById("v_mar").textContent = (s.mar || 0).toFixed(2);
+      document.getElementById("s_mar").textContent = s.yawning ? t("marYawn") : t("marClosed");
+      setMetric("m_mar", s.yawning ? "warn" : "");
+
+      document.getElementById("v_yawns").textContent  = s.yawns_per_min || 0;
+      setMetric("m_yawns", (s.yawns_per_min || 0) >= 3 ? "warn" : "");
+
+      document.getElementById("v_blinks").textContent = s.blinks_per_min || 0;
+      setMetric("m_blinks", (s.blinks_per_min || 0) > 30 ? "active" : "");
+
+      const pitch = s.head_pitch || 0;
+      document.getElementById("v_pitch").textContent = pitch.toFixed(0) + "°";
+      document.getElementById("s_pitch").textContent = s.head_nodding ? t("pitchNod") : t("pitchNormal");
+      setMetric("m_pitch", s.head_nodding ? "warn" : "");
+
+      toggle("i_closed", s.eyes_closed);
+      toggle("i_yawn",   s.yawning);
+      toggle("i_nod",    s.head_nodding);
+    }
+
+    function setMetric(id, cls) {
+      const el = document.getElementById(id);
+      el.classList.remove("active", "warn");
+      if (cls) el.classList.add(cls);
+    }
+
+    function toggle(id, on) {
+      document.getElementById(id).classList.toggle("on", !!on);
+    }
+
+    async function resetAlert() {
+      await fetch("/reset");
+    }
+
+    async function recalibrate() {
+      await fetch("/recalibrate");
+    }
+
+    setInterval(fetchStatus, 200);
+    fetchStatus();
+  </script>
+
+</body>
+</html>

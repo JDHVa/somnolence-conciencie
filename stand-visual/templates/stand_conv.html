@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Pipeline de Procesamiento — Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #fafaf8;
+      color: #1a1a1a;
+      font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 20px 40px;
+      border-bottom: 1px solid #e8e5de;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #fff;
+    }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .badge {
+      font-size: 12px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    .badge-normal { background: #ecfdf5; color: #16a34a; }
+    .badge-tired  { background: #fffbeb; color: #ca8a04; }
+    .badge-drowsy { background: #fff7ed; color: #ea580c; }
+    .badge-alert  { background: #fef2f2; color: #dc2626; }
+
+    .main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #e8e5de;
+      position: relative;
+      overflow: hidden;
+    }
+    .stage:last-child { border-right: none; }
+
+    .stage-header {
+      padding: 16px 20px;
+      background: #fff;
+      border-bottom: 1px solid #e8e5de;
+    }
+    .stage-num {
+      font-size: 11px;
+      font-weight: 600;
+      color: #bbb;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .stage-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .stage-desc {
+      font-size: 12px;
+      color: #999;
+      margin-top: 2px;
+    }
+
+    .stage-body {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      position: relative;
+      background: #f5f3ee;
+    }
+
+    .stage-body canvas, .stage-body img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .stage-body svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .stage-footer {
+      padding: 12px 20px;
+      background: #fff;
+      border-top: 1px solid #e8e5de;
+      font-size: 12px;
+      color: #999;
+      display: flex;
+      justify-content: space-between;
+    }
+    .stage-footer .val {
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    /* Arrow between stages */
+    .arrow-overlay {
+      position: absolute;
+      right: -14px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      width: 28px;
+      height: 28px;
+      background: #fff;
+      border: 1px solid #e8e5de;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #bbb;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+
+    /* Canvas para video procesado */
+    .proc-canvas {
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      image-rendering: auto;
+    }
+
+    /* Animated line flowing right */
+    @keyframes flowRight {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    .flow-line {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 25%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+      animation: flowRight 3s linear infinite;
+    }
+
+    /* Stage 4 EAR visualization */
+    .ear-viz {
+      text-align: center;
+    }
+    .ear-formula {
+      font-size: 18px;
+      font-weight: 300;
+      color: #555;
+      margin: 12px 0;
+      font-family: 'Georgia', serif;
+      font-style: italic;
+    }
+    .ear-big {
+      font-size: 64px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      transition: color 0.3s;
+    }
+    .ear-big.open { color: #16a34a; }
+    .ear-big.closed { color: #dc2626; }
+    .ear-label {
+      font-size: 14px;
+      color: #999;
+      margin-top: 8px;
+      letter-spacing: 1px;
+    }
+    .ear-bar {
+      width: 200px;
+      height: 6px;
+      background: #eee;
+      border-radius: 3px;
+      margin: 16px auto 0;
+      overflow: hidden;
+    }
+    .ear-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s, background 0.3s;
+    }
+
+    .distances {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      margin-top: 16px;
+    }
+    .dist-item {
+      text-align: center;
+    }
+    .dist-item .letter {
+      font-size: 22px;
+      font-weight: 700;
+      font-family: Georgia, serif;
+    }
+    .dist-item .px {
+      font-size: 12px;
+      color: #999;
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1 data-es="Pipeline de Procesamiento de Imagen" data-en="Image Processing Pipeline">Pipeline de Procesamiento de Imagen</h1>
+    <span id="badge" class="badge badge-normal">NORMAL</span>
+  </div>
+
+  <div class="main">
+
+    <!-- STAGE 1: Captura original -->
+    <div class="stage">
+      <div class="stage-header">
+        <div class="stage-num">Paso 01</div>
+        <div class="stage-title" data-es="Captura" data-en="Capture">Captura</div>
+        <div class="stage-desc" data-es="Imagen cruda de la cámara" data-en="Raw camera image">Imagen cruda de la cámara</div>
+      </div>
+      <div class="stage-body">
+        <img src="/video_feed" id="rawVideo" style="transform: scaleX(1);">
+        <div class="flow-line"></div>
+      </div>
+      <div class="stage-footer">
+        <span data-es="Resolución" data-en="Resolution">Resolución</span>
+        <span class="val">640 × 480</span>
+      </div>
+      <div class="arrow-overlay">→</div>
+    </div>
+
+    <!-- STAGE 2: Preprocesamiento (escala de grises + bordes) -->
+    <div class="stage">
+      <div class="stage-header">
+        <div class="stage-num">Paso 02</div>
+        <div class="stage-title" data-es="Detección de bordes" data-en="Edge Detection">Detección de bordes</div>
+        <div class="stage-desc" data-es="Filtro Canny sobre escala de grises" data-en="Canny filter on grayscale">Filtro Canny sobre escala de grises</div>
+      </div>
+      <div class="stage-body">
+        <canvas id="canvasEdge" class="proc-canvas"></canvas>
+        <div class="flow-line" style="animation-delay: 0.8s;"></div>
+      </div>
+      <div class="stage-footer">
+        <span data-es="Filtro" data-en="Filter">Filtro</span>
+        <span class="val">Canny Edge</span>
+      </div>
+      <div class="arrow-overlay">→</div>
+    </div>
+
+    <!-- STAGE 3: Face Mesh / Landmarks -->
+    <div class="stage">
+      <div class="stage-header">
+        <div class="stage-num">Paso 03</div>
+        <div class="stage-title">Face Landmarks</div>
+        <div class="stage-desc" data-es="MediaPipe — 478 puntos faciales" data-en="MediaPipe — 478 facial points">MediaPipe — 478 puntos faciales</div>
+      </div>
+      <div class="stage-body">
+        <canvas id="canvasLandmarks" class="proc-canvas"></canvas>
+        <div class="flow-line" style="animation-delay: 1.6s;"></div>
+      </div>
+      <div class="stage-footer">
+        <span data-es="Puntos" data-en="Points">Puntos</span>
+        <span class="val" id="lmCount">0 / 478</span>
+      </div>
+      <div class="arrow-overlay">→</div>
+    </div>
+
+    <!-- STAGE 4: Resultado — EAR calculado -->
+    <div class="stage">
+      <div class="stage-header">
+        <div class="stage-num">Paso 04</div>
+        <div class="stage-title" data-es="Cálculo EAR" data-en="EAR Calculation">Cálculo EAR</div>
+        <div class="stage-desc" data-es="Eye Aspect Ratio → decisión" data-en="Eye Aspect Ratio → decision">Eye Aspect Ratio → decisión</div>
+      </div>
+      <div class="stage-body" style="background: #fff;">
+        <div class="ear-viz">
+          <div class="ear-formula">EAR = (A + B) / (2 · C)</div>
+          <div id="earBig" class="ear-big open">0.30</div>
+          <div id="earLabel" class="ear-label">OJOS ABIERTOS</div>
+          <div class="ear-bar">
+            <div id="earBarFill" class="ear-bar-fill" style="width:75%; background:#16a34a;"></div>
+          </div>
+          <div class="distances">
+            <div class="dist-item">
+              <div class="letter" style="color: #3b82f6;">A</div>
+              <div class="px" id="distA">0.0 px</div>
+            </div>
+            <div class="dist-item">
+              <div class="letter" style="color: #8b5cf6;">B</div>
+              <div class="px" id="distB">0.0 px</div>
+            </div>
+            <div class="dist-item">
+              <div class="letter" style="color: #f59e0b;">C</div>
+              <div class="px" id="distC">0.0 px</div>
+            </div>
+          </div>
+          <div style="margin-top:24px; font-size:12px; color:#bbb;">
+            Umbral: <span id="thrVal" style="font-weight:600; color:#666;">0.22</span>
+          </div>
+        </div>
+      </div>
+      <div class="stage-footer">
+        <span data-es="Estado" data-en="Status">Estado</span>
+        <span class="val" id="eyeState">Abiertos</span>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const LEFT_EYE  = [362, 385, 387, 263, 373, 380];
+    const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
+
+    const canvasEdge = document.getElementById("canvasEdge");
+    const ctxEdge = canvasEdge.getContext("2d", { willReadFrequently: true });
+    const canvasLM = document.getElementById("canvasLandmarks");
+    const ctxLM = canvasLM.getContext("2d");
+
+    const offscreen = document.createElement("canvas");
+    const offCtx = offscreen.getContext("2d", { willReadFrequently: true });
+
+    const videoImg = new Image();
+    videoImg.crossOrigin = "anonymous";
+    let videoReady = false;
+
+    // Stream de video para procesamiento
+    function startVideoCapture() {
+      const img = document.getElementById("rawVideo");
+      setInterval(() => {
+        if (img.complete && img.naturalWidth > 0) {
+          offscreen.width = 320;
+          offscreen.height = 240;
+          offCtx.drawImage(img, 0, 0, 320, 240);
+          videoReady = true;
+        }
+      }, 80);
+    }
+    startVideoCapture();
+
+    // Procesar bordes (Canny simulado con Sobel en JS)
+    function processEdges() {
+      if (!videoReady) return;
+      const w = 320, h = 240;
+      canvasEdge.width = w;
+      canvasEdge.height = h;
+
+      // Dibujar imagen original en escala de grises
+      ctxEdge.drawImage(offscreen, 0, 0);
+      const imgData = ctxEdge.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      // Convertir a escala de grises
+      const gray = new Float32Array(w * h);
+      for (let i = 0; i < w * h; i++) {
+        const idx = i * 4;
+        gray[i] = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      }
+
+      // Sobel simplificado
+      const edges = new Float32Array(w * h);
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = y * w + x;
+          const gx = -gray[idx - w - 1] + gray[idx - w + 1]
+                    - 2 * gray[idx - 1] + 2 * gray[idx + 1]
+                    - gray[idx + w - 1] + gray[idx + w + 1];
+          const gy = -gray[idx - w - 1] - 2 * gray[idx - w] - gray[idx - w + 1]
+                    + gray[idx + w - 1] + 2 * gray[idx + w] + gray[idx + w + 1];
+          edges[idx] = Math.min(255, Math.sqrt(gx * gx + gy * gy));
+        }
+      }
+
+      // Renderizar bordes con look limpio
+      const out = ctxEdge.createImageData(w, h);
+      for (let i = 0; i < w * h; i++) {
+        const v = edges[i] > 40 ? 50 : 235;
+        out.data[i * 4] = v;
+        out.data[i * 4 + 1] = v;
+        out.data[i * 4 + 2] = v;
+        out.data[i * 4 + 3] = 255;
+      }
+      ctxEdge.putImageData(out, 0, 0);
+    }
+
+    // Dibujar landmarks
+    function drawLandmarks(landmarks) {
+      const w = 320, h = 240;
+      canvasLM.width = w;
+      canvasLM.height = h;
+
+      if (!videoReady) return;
+
+      // Fondo: imagen original tenue
+      ctxLM.globalAlpha = 0.3;
+      ctxLM.drawImage(offscreen, 0, 0);
+      ctxLM.globalAlpha = 1.0;
+
+      if (!landmarks || landmarks.length === 0) return;
+
+      // Todos los puntos en gris claro
+      for (const lm of landmarks) {
+        const x = lm[0] * w, y = lm[1] * h;
+        ctxLM.fillStyle = "rgba(100, 100, 100, 0.4)";
+        ctxLM.beginPath();
+        ctxLM.arc(x, y, 1, 0, Math.PI * 2);
+        ctxLM.fill();
+      }
+
+      // Ojos resaltados
+      function drawEye(indices, color) {
+        const pts = indices.map(i => [landmarks[i][0] * w, landmarks[i][1] * h]);
+        ctxLM.strokeStyle = color;
+        ctxLM.lineWidth = 1.5;
+        ctxLM.beginPath();
+        ctxLM.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctxLM.lineTo(pts[i][0], pts[i][1]);
+        ctxLM.closePath();
+        ctxLM.stroke();
+
+        // Líneas A, B, C
+        ctxLM.strokeStyle = "#3b82f6";
+        ctxLM.lineWidth = 1;
+        ctxLM.setLineDash([3, 3]);
+        // A: 1-5
+        ctxLM.beginPath();
+        ctxLM.moveTo(pts[1][0], pts[1][1]);
+        ctxLM.lineTo(pts[5][0], pts[5][1]);
+        ctxLM.stroke();
+        // B: 2-4
+        ctxLM.strokeStyle = "#8b5cf6";
+        ctxLM.beginPath();
+        ctxLM.moveTo(pts[2][0], pts[2][1]);
+        ctxLM.lineTo(pts[4][0], pts[4][1]);
+        ctxLM.stroke();
+        // C: 0-3
+        ctxLM.strokeStyle = "#f59e0b";
+        ctxLM.beginPath();
+        ctxLM.moveTo(pts[0][0], pts[0][1]);
+        ctxLM.lineTo(pts[3][0], pts[3][1]);
+        ctxLM.stroke();
+        ctxLM.setLineDash([]);
+
+        for (const p of pts) {
+          ctxLM.fillStyle = color;
+          ctxLM.beginPath();
+          ctxLM.arc(p[0], p[1], 3, 0, Math.PI * 2);
+          ctxLM.fill();
+        }
+      }
+
+      drawEye(LEFT_EYE, "#1a1a1a");
+      drawEye(RIGHT_EYE, "#1a1a1a");
+    }
+
+    async function tick() {
+      try {
+        const res = await fetch("/state");
+        const s = await res.json();
+
+        processEdges();
+        drawLandmarks(s.landmarks || []);
+
+        document.getElementById("lmCount").textContent =
+          (s.landmarks || []).length + " / 478";
+
+        // EAR display
+        const ear = s.ear || 0;
+        const earBig = document.getElementById("earBig");
+        earBig.textContent = ear.toFixed(2);
+        earBig.className = "ear-big " + (s.eyes_closed ? "closed" : "open");
+
+        const label = document.getElementById("earLabel");
+        label.textContent = s.eyes_closed ? "OJOS CERRADOS" : "OJOS ABIERTOS";
+        label.style.color = s.eyes_closed ? "#dc2626" : "#16a34a";
+
+        const fill = document.getElementById("earBarFill");
+        const pct = Math.min(100, (ear / 0.40) * 100);
+        fill.style.width = pct + "%";
+        fill.style.background = s.eyes_closed ? "#dc2626" : "#16a34a";
+
+        const avgA = ((s.ear_a_left || 0) + (s.ear_a_right || 0)) / 2;
+        const avgB = ((s.ear_b_left || 0) + (s.ear_b_right || 0)) / 2;
+        const avgC = ((s.ear_c_left || 0) + (s.ear_c_right || 0)) / 2;
+        document.getElementById("distA").textContent = avgA.toFixed(1) + " px";
+        document.getElementById("distB").textContent = avgB.toFixed(1) + " px";
+        document.getElementById("distC").textContent = avgC.toFixed(1) + " px";
+        document.getElementById("thrVal").textContent = (s.ear_threshold || 0.22).toFixed(3);
+
+        document.getElementById("eyeState").textContent =
+          s.eyes_closed ? "Cerrados" : "Abiertos";
+        document.getElementById("eyeState").style.color =
+          s.eyes_closed ? "#dc2626" : "#16a34a";
+
+        const level = s.level || "NORMAL";
+        const badge = document.getElementById("badge");
+        badge.textContent = level;
+        const clsMap = { NORMAL: "badge-normal", CANSADO: "badge-tired",
+                         SOMNOLIENTO: "badge-drowsy", ALERTA: "badge-alert" };
+        badge.className = "badge " + (clsMap[level] || "badge-normal");
+
+      } catch (e) {}
+    }
+
+    setInterval(tick, 100);
+    tick();
+  </script>
+
+<script src="/static/lang.js"></script>
+</body>
+</html>
