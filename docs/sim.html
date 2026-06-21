@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulación — Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #f2f0eb;
+      color: #1a1a1a;
+      font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+    }
+    canvas { display: block; width: 100%; height: 100vh; outline: none; }
+
+    .panel {
+      background: #fff;
+      border-left: 1px solid #e0ddd6;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .panel h1 { font-size: 18px; font-weight: 600; }
+    .panel .sub { font-size: 12px; color: #999; margin-top: 2px; }
+
+    .status-card {
+      border-radius: 12px; padding: 20px; text-align: center; transition: all 0.4s;
+    }
+    .status-card.normal { background: #f0faf4; border: 1px solid #c6f0d4; }
+    .status-card.tired  { background: #fef9ed; border: 1px solid #fde68a; }
+    .status-card.drowsy { background: #fef4ed; border: 1px solid #fdba74; }
+    .status-card.alert  { background: #fef2f2; border: 1px solid #fca5a5; }
+    .status-card .level { font-size: 28px; font-weight: 700; letter-spacing: 1px; }
+    .status-card.normal .level { color: #16a34a; }
+    .status-card.tired  .level { color: #ca8a04; }
+    .status-card.drowsy .level { color: #ea580c; }
+    .status-card.alert  .level { color: #dc2626; }
+    .status-card .desc { font-size: 13px; color: #888; margin-top: 4px; }
+
+    .speed-display { text-align: center; padding: 12px; }
+    .speed-display .num {
+      font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+      transition: color 0.3s;
+    }
+    .speed-display .unit { font-size: 14px; color: #999; margin-top: 4px; }
+
+    .cam-preview { border-radius: 10px; overflow: hidden; border: 1px solid #eee; }
+    .cam-preview video { width: 100%; display: block; transform: scaleX(-1); }
+    .cam-preview .label {
+      text-align: center; padding: 6px; font-size: 11px; color: #999;
+      background: #fafaf8; letter-spacing: 1px;
+    }
+
+    .metric-group {
+      background: #fafaf8; border-radius: 10px; padding: 16px; border: 1px solid #eee;
+    }
+    .metric-group .title {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 1.5px; color: #aaa; margin-bottom: 12px;
+    }
+    .metric {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 0; border-bottom: 1px solid #f0eeea;
+    }
+    .metric:last-child { border-bottom: none; }
+    .metric .lbl { font-size: 13px; color: #666; }
+    .metric .val { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .controls-hint {
+      background: #f5f3ee; border-radius: 10px; padding: 14px;
+      border: 1px solid #eee; font-size: 12px; color: #888; line-height: 1.7;
+    }
+    .controls-hint .key {
+      display: inline-block; background: #fff; border: 1px solid #ddd;
+      border-radius: 4px; padding: 1px 8px; font-size: 11px; font-weight: 600;
+      color: #555; margin: 0 2px;
+    }
+
+    .btn-restart {
+      display: none;
+      width: 100%; padding: 14px; border: none; border-radius: 10px;
+      background: #c0392b; color: #fff; font-size: 15px; font-weight: 600;
+      cursor: pointer; letter-spacing: 0.5px; transition: background 0.2s;
+    }
+    .btn-restart:hover { background: #a93226; }
+    .btn-restart.show { display: block; }
+
+    .legend { font-size: 11px; color: #aaa; line-height: 1.8; }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-color { width: 16px; height: 16px; border-radius: 4px; }
+
+    .crash-overlay {
+      position: fixed; inset: 0; right: 340px;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.6); z-index: 10;
+      pointer-events: none;
+    }
+    .crash-overlay.show { display: flex; }
+    .crash-text { text-align: center; color: #fff; }
+    .crash-text .icon { font-size: 64px; margin-bottom: 12px; }
+    .crash-text .title { font-size: 32px; font-weight: 700; }
+    .crash-text .sub { font-size: 14px; color: #ccc; margin-top: 8px; }
+
+  </style>
+</head>
+<body>
+
+  <canvas id="city" tabindex="0"></canvas>
+
+  <div class="crash-overlay" id="crashOverlay">
+    <div class="crash-text">
+      <div class="icon">💥</div>
+      <div class="title" data-es="Colisión" data-en="Collision">Colisión</div>
+      <div class="sub" data-es="El conductor se quedó dormido" data-en="The driver fell asleep">El conductor se quedó dormido</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div>
+      <h1 data-es="Simulación en Vivo" data-en="Live Simulation">Simulación en Vivo</h1>
+      <div class="sub" data-es="Controla el auto con el teclado" data-en="Control the car with your keyboard">Controla el auto con el teclado</div>
+    </div>
+    <div id="statusCard" class="status-card normal">
+      <div class="level" id="levelText">NORMAL</div>
+      <div class="desc" id="levelDesc">Conducción segura</div>
+    </div>
+    <div class="speed-display">
+      <div class="num" id="speedNum">0</div>
+      <div class="unit">km/h</div>
+    </div>
+
+    <button class="btn-restart" id="btnRestart" onclick="restartGame()" data-es="Reiniciar Simulación" data-en="Restart Simulation">Reiniciar Simulación</button>
+
+    <div class="cam-preview" id="camPreview" style="display:none;">
+      <video id="camVid" autoplay playsinline muted></video>
+      <div class="label" data-es="CÁMARA DEL CONDUCTOR" data-en="DRIVER CAMERA">CÁMARA DEL CONDUCTOR</div>
+    </div>
+
+    <div class="controls-hint">
+      <div class="key">W</div> / <div class="key">↑</div> Acelerar<br>
+      <div class="key">S</div> / <div class="key">↓</div> Frenar / Reversa<br>
+      <div class="key">A</div> / <div class="key">←</div> Girar izquierda<br>
+      <div class="key">D</div> / <div class="key">→</div> Girar derecha
+    </div>
+
+    <div class="metric-group">
+      <div class="title" data-es="Métricas" data-en="Metrics">Métricas</div>
+      <div class="metric"><span class="lbl">EAR</span><span class="val" id="mEar">0.00</span></div>
+      <div class="metric"><span class="lbl">PERCLOS</span><span class="val" id="mPerc">0%</span></div>
+      <div class="metric"><span class="lbl" data-es="Fatiga" data-en="Fatigue">Fatiga</span><span class="val" id="mScore">0.00</span></div>
+      <div class="metric"><span class="lbl" data-es="Ojos" data-en="Eyes">Ojos</span><span class="val" id="mEyes">Abiertos</span></div>
+    </div>
+
+    <div class="metric-group">
+      <div class="title" data-es="Leyenda" data-en="Legend">Leyenda</div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background:#c0392b;"></div><span data-es="Tu auto" data-en="Your car">Tu auto</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#555;"></div><span data-es="Otros autos" data-en="Other cars">Otros autos</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#7cb342;"></div><span data-es="Parques" data-en="Parks">Parques</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#bbb;"></div><span data-es="Edificios" data-en="Buildings">Edificios</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("city");
+    const ctx = canvas.getContext("2d");
+    canvas.focus();
+    let W, H;
+    function resize() {
+      const r = canvas.getBoundingClientRect();
+      canvas.width = r.width * devicePixelRatio;
+      canvas.height = r.height * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      W = r.width; H = r.height;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const BLOCK = 160, ROAD = 50, CELL = BLOCK + ROAD;
+    const COLS = 10, ROWS = 8;
+
+    const blocks = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const x = c * CELL + ROAD, y = r * CELL + ROAD;
+        const isPark = Math.random() < 0.35;
+        blocks.push({
+          x, y, w: BLOCK, h: BLOCK, isPark,
+          shade: 180 + Math.floor(Math.random() * 40),
+          trees: isPark ? Array.from({length: 5}, () => ({
+            tx: 20 + Math.random()*(BLOCK-40),
+            ty: 20 + Math.random()*(BLOCK-40),
+            tr: 5 + Math.random()*5,
+          })) : [],
+        });
+      }
+    }
+
+    function roadCenter(c) { return c * CELL + ROAD / 2; }
+    function genNpcRoute(sc, sr, len) {
+      const rt = []; let c = sc, r = sr, ld = -1;
+      for (let i = 0; i < len; i++) {
+        const ds = [];
+        if (c > 0) ds.push(0); if (c < COLS) ds.push(1);
+        if (r > 0) ds.push(2); if (r < ROWS) ds.push(3);
+        let d = (ld >= 0 && ds.includes(ld) && Math.random() < 0.6) ? ld : ds[Math.floor(Math.random()*ds.length)];
+        if (d===0) c--; else if (d===1) c++; else if (d===2) r--; else r++;
+        ld = d;
+        let lx = roadCenter(c), ly = roadCenter(r);
+        if (d===0||d===1) ly += 10;
+        if (d===2||d===3) lx += 10;
+        rt.push({x:lx, y:ly});
+      }
+      return rt;
+    }
+
+    class NPC {
+      constructor() { this.respawn(); }
+      respawn() {
+        this.route = genNpcRoute(Math.floor(Math.random()*(COLS+1)), Math.floor(Math.random()*(ROWS+1)), 40);
+        this.idx = 0;
+        if (this.route.length) { this.x = this.route[0].x; this.y = this.route[0].y; }
+        this.speed = 0.8 + Math.random()*1.2;
+        this.angle = 0;
+        this.shade = 30 + Math.floor(Math.random()*20);
+        this.len = 18 + Math.random()*6;
+      }
+      update() {
+        if (this.idx >= this.route.length) { this.respawn(); return; }
+        const wp = this.route[this.idx];
+        const dx = wp.x-this.x, dy = wp.y-this.y, d = Math.sqrt(dx*dx+dy*dy);
+        if (d < 8) { this.idx++; return; }
+        this.angle = Math.atan2(dy, dx);
+        this.x += Math.cos(this.angle)*this.speed;
+        this.y += Math.sin(this.angle)*this.speed;
+      }
+      draw(ctx, ox, oy) {
+        const sx = this.x-ox, sy = this.y-oy;
+        if (sx<-40||sx>W+40||sy<-40||sy>H+40) return;
+        ctx.save(); ctx.translate(sx,sy); ctx.rotate(this.angle);
+        ctx.fillStyle = `hsl(220,5%,${this.shade}%)`;
+        ctx.beginPath(); ctx.roundRect(-this.len/2,-5,this.len,10,2); ctx.fill();
+        ctx.restore();
+      }
+      getHitbox() {
+        const hw = this.len/2;
+        return { x: this.x-hw, y: this.y-5, w: this.len, h: 10 };
+      }
+    }
+    let npcs = Array.from({length: 20}, () => new NPC());
+
+    const PLAYER_W = 24, PLAYER_H = 12;
+    const MAX_SPEED_KMPH = 120;
+    const ACCEL = 0.08, BRAKE = 0.12, FRICTION = 0.02, TURN_RATE = 0.04;
+
+    let player = {
+      x: roadCenter(2) + 10, y: roadCenter(2) + 10,
+      angle: 0, speed: 0, crashed: false,
+    };
+    let crashParticles = [];
+    let driverState = { level: "NORMAL" };
+
+    const keys = {};
+    window.addEventListener("keydown", e => { keys[e.key.toLowerCase()] = true; keys[e.code] = true; e.preventDefault(); });
+    window.addEventListener("keyup", e => { keys[e.key.toLowerCase()] = false; keys[e.code] = false; });
+
+    let alarmCtx = null, alarmOsc = null, alarmPlaying = false;
+    function startAlarm() {
+      if (alarmPlaying) return;
+      try {
+        if (!alarmCtx) alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
+        alarmOsc = alarmCtx.createOscillator();
+        const alarmGain = alarmCtx.createGain();
+        alarmOsc.type = "square";
+        alarmOsc.frequency.value = 880;
+        alarmGain.gain.value = 0.15;
+        alarmOsc.connect(alarmGain);
+        alarmGain.connect(alarmCtx.destination);
+        alarmOsc.start();
+        alarmPlaying = true;
+        (function siren() {
+          if (!alarmPlaying) return;
+          const t = Date.now() / 300;
+          alarmOsc.frequency.value = 700 + Math.sin(t) * 200;
+          requestAnimationFrame(siren);
+        })();
+      } catch(e){}
+    }
+    function stopAlarm() {
+      if (!alarmPlaying) return;
+      try { alarmOsc.stop(); } catch(e){}
+      alarmPlaying = false;
+      alarmOsc = null;
+    }
+
+    function findNearestPark() {
+      let best = null, bestDist = Infinity;
+      for (const b of blocks) {
+        if (!b.isPark) continue;
+        const cx = b.x + b.w/2, cy = b.y + b.h/2;
+        const d = (cx-player.x)**2 + (cy-player.y)**2;
+        if (d < bestDist) { bestDist = d; best = b; }
+      }
+      return best;
+    }
+    function parkingSpot(park) { return { x: park.x - 15, y: park.y + park.h / 2 }; }
+    function speedKmph() { return Math.abs(player.speed) * (MAX_SPEED_KMPH / 3.0); }
+
+    let autopilotTarget = null, parkedSafely = false;
+
+    function updatePlayer() {
+      if (player.crashed) return;
+      const level = driverState.level || "NORMAL";
+
+      if (level === "ALERTA" || level === "SOMNOLIENTO") startAlarm();
+      else stopAlarm();
+
+      if (level === "ALERTA" && !parkedSafely) {
+        if (!autopilotTarget) {
+          const park = findNearestPark();
+          if (park) autopilotTarget = parkingSpot(park);
+        }
+        if (autopilotTarget) {
+          const dx = autopilotTarget.x - player.x, dy = autopilotTarget.y - player.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 20) {
+            player.speed *= 0.9;
+            if (Math.abs(player.speed) < 0.1) { player.speed = 0; parkedSafely = true; }
+          } else {
+            const targetAngle = Math.atan2(dy, dx);
+            let diff = targetAngle - player.angle;
+            while (diff > Math.PI) diff -= Math.PI*2;
+            while (diff < -Math.PI) diff += Math.PI*2;
+            player.angle += diff * 0.06;
+            const targetSpeed = Math.min(1.5, dist / 80);
+            player.speed += (targetSpeed - player.speed) * 0.05;
+          }
+          player.x += Math.cos(player.angle) * player.speed;
+          player.y += Math.sin(player.angle) * player.speed;
+          player.x = Math.max(0, Math.min(player.x, (COLS+1)*CELL));
+          player.y = Math.max(0, Math.min(player.y, (ROWS+1)*CELL));
+          checkCollisions();
+          return;
+        }
+      }
+
+      if (level === "NORMAL" || level === "CANSADO") { autopilotTarget = null; parkedSafely = false; }
+
+      const drowsyPenalty = { NORMAL: 1.0, CANSADO: 0.7, SOMNOLIENTO: 0.35, ALERTA: 0 }[level] ?? 1.0;
+      const up = keys["w"] || keys["arrowup"];
+      const down = keys["s"] || keys["arrowdown"];
+      const left = keys["a"] || keys["arrowleft"];
+      const right = keys["d"] || keys["arrowright"];
+
+      if (up && drowsyPenalty > 0) player.speed += ACCEL * drowsyPenalty;
+      else if (down) player.speed -= BRAKE;
+      else {
+        if (player.speed > 0) player.speed = Math.max(0, player.speed - FRICTION);
+        else if (player.speed < 0) player.speed = Math.min(0, player.speed + FRICTION);
+      }
+      player.speed = Math.max(-1.0, Math.min(3.0, player.speed));
+
+      if (level === "SOMNOLIENTO") player.angle += Math.sin(Date.now() / 600) * 0.008;
+
+      if (Math.abs(player.speed) > 0.1) {
+        const turnMul = Math.min(1, Math.abs(player.speed) / 1.5);
+        if (left) player.angle -= TURN_RATE * turnMul;
+        if (right) player.angle += TURN_RATE * turnMul;
+      }
+
+      player.x += Math.cos(player.angle) * player.speed;
+      player.y += Math.sin(player.angle) * player.speed;
+      player.x = Math.max(0, Math.min(player.x, (COLS+1)*CELL));
+      player.y = Math.max(0, Math.min(player.y, (ROWS+1)*CELL));
+      checkCollisions();
+    }
+
+    function playerCorners() {
+      const cos = Math.cos(player.angle), sin = Math.sin(player.angle);
+      const hw = PLAYER_W/2, hh = PLAYER_H/2;
+      return [
+        { x: player.x + cos*hw - sin*hh, y: player.y + sin*hw + cos*hh },
+        { x: player.x + cos*hw + sin*hh, y: player.y + sin*hw - cos*hh },
+        { x: player.x - cos*hw + sin*hh, y: player.y - sin*hw - cos*hh },
+        { x: player.x - cos*hw - sin*hh, y: player.y - sin*hw + cos*hh },
+      ];
+    }
+
+    function pointInRect(px, py, rx, ry, rw, rh) {
+      return px >= rx && px <= rx+rw && py >= ry && py <= ry+rh;
+    }
+
+    function checkCollisions() {
+      const corners = playerCorners();
+      for (const n of npcs) {
+        const hb = n.getHitbox();
+        for (const c of corners) {
+          if (pointInRect(c.x, c.y, hb.x, hb.y, hb.w, hb.h)) { crash(); return; }
+        }
+      }
+    }
+
+    function crash() {
+      if (player.crashed) return;
+      player.crashed = true; player.speed = 0;
+      for (let i = 0; i < 20; i++) {
+        const a = Math.random()*Math.PI*2, v = 1+Math.random()*3;
+        crashParticles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(a)*v, vy: Math.sin(a)*v,
+          life: 60+Math.random()*40, size: 2+Math.random()*4,
+          color: Math.random()>0.5?"#ff6b3a":"#ffaa00",
+        });
+      }
+      document.getElementById("crashOverlay").classList.add("show");
+      document.getElementById("btnRestart").classList.add("show");
+    }
+
+    window.restartGame = function() {
+      player = { x: roadCenter(2)+10, y: roadCenter(2)+10, angle: 0, speed: 0, crashed: false };
+      autopilotTarget = null; parkedSafely = false;
+      crashParticles = [];
+      npcs = Array.from({length: 20}, () => new NPC());
+      stopAlarm();
+      document.getElementById("crashOverlay").classList.remove("show");
+      document.getElementById("btnRestart").classList.remove("show");
+      canvas.focus();
+    };
+
+    function drawWorld(ox, oy) {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#c8c3bb"; ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "#b0aba3";
+      for (let r = 0; r <= ROWS; r++) ctx.fillRect(0, r*CELL-oy, W, ROAD);
+      for (let c = 0; c <= COLS; c++) ctx.fillRect(c*CELL-ox, 0, ROAD, H);
+
+      ctx.strokeStyle = "#bfb9b0"; ctx.lineWidth = 1; ctx.setLineDash([8,14]);
+      for (let r = 0; r <= ROWS; r++) { const y = r*CELL+ROAD/2-oy; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+      for (let c = 0; c <= COLS; c++) { const x = c*CELL+ROAD/2-ox; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+      ctx.setLineDash([]);
+
+      for (const b of blocks) {
+        const rx=b.x-ox, ry=b.y-oy;
+        if (rx+b.w<-20||rx>W+20||ry+b.h<-20||ry>H+20) continue;
+        if (b.isPark) {
+          ctx.fillStyle="#d4e6c8";
+          ctx.beginPath(); ctx.roundRect(rx+6,ry+6,b.w-12,b.h-12,8); ctx.fill();
+          for (const t of b.trees) { ctx.fillStyle="#7cb342"; ctx.beginPath(); ctx.arc(rx+t.tx,ry+t.ty,t.tr,0,Math.PI*2); ctx.fill(); }
+        } else {
+          const g=b.shade;
+          ctx.fillStyle=`rgb(${g},${g-3},${g-8})`;
+          ctx.shadowColor="rgba(0,0,0,0.06)"; ctx.shadowBlur=6; ctx.shadowOffsetX=2; ctx.shadowOffsetY=2;
+          ctx.beginPath(); ctx.roundRect(rx+8,ry+8,b.w-16,b.h-16,4); ctx.fill();
+          ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+        }
+      }
+
+      for (const n of npcs) { n.update(); n.draw(ctx, ox, oy); }
+
+      for (let i = crashParticles.length-1; i >= 0; i--) {
+        const p = crashParticles[i];
+        p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96; p.life--;
+        if (p.life <= 0) { crashParticles.splice(i,1); continue; }
+        ctx.globalAlpha = p.life / 80; ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x-ox,p.y-oy,p.size,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      const px=player.x-ox, py=player.y-oy;
+      const level = driverState.level || "NORMAL";
+
+      if (player.crashed) {
+        ctx.save(); ctx.translate(px,py); ctx.rotate(player.angle + 0.2);
+        ctx.fillStyle = "#8b0000";
+        ctx.beginPath(); ctx.roundRect(-12,-6,24,12,3); ctx.fill();
+        ctx.strokeStyle = "#555"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(4,6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(6,-6); ctx.lineTo(-6,6); ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.save(); ctx.translate(px,py); ctx.rotate(player.angle);
+        ctx.fillStyle="rgba(0,0,0,0.08)";
+        ctx.beginPath(); ctx.roundRect(-14,-8,28,16,4); ctx.fill();
+        ctx.fillStyle="#c0392b";
+        ctx.beginPath(); ctx.roundRect(-12,-6,24,12,3); ctx.fill();
+        ctx.fillStyle="rgba(255,255,255,0.35)"; ctx.fillRect(6,-4,4,8);
+
+        if (keys["s"] || keys["arrowdown"] || level==="SOMNOLIENTO" || level==="ALERTA") {
+          ctx.fillStyle="#ff4444";
+          ctx.beginPath(); ctx.arc(-12,-5,2,0,Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(-12,5,2,0,Math.PI*2); ctx.fill();
+        }
+        if (level==="ALERTA" && Math.floor(Date.now()/400)%2===0) {
+          ctx.fillStyle="#ffaa00";
+          ctx.beginPath(); ctx.arc(10,-6,2.5,0,Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(10,6,2.5,0,Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(-10,-6,2.5,0,Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(-10,6,2.5,0,Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+
+        if (level==="SOMNOLIENTO"||level==="ALERTA") {
+          const bob=Math.sin(Date.now()/500)*4;
+          ctx.font="bold 14px -apple-system,sans-serif";
+          ctx.fillStyle=level==="ALERTA"?"#dc2626":"#ea580c";
+          ctx.fillText("zzZ",px+18,py-14+bob);
+        }
+        if (level==="ALERTA" && autopilotTarget && !parkedSafely) {
+          ctx.font="11px -apple-system,sans-serif";
+          ctx.fillStyle="#ea580c";
+          ctx.fillText("Buscando zona segura...",px-40,py+24);
+        }
+        if (parkedSafely) {
+          ctx.font="bold 12px -apple-system,sans-serif";
+          ctx.fillStyle="#16a34a";
+          ctx.fillText("ESTACIONADO",px-26,py+24);
+        }
+      }
+    }
+
+    function loop() {
+      updatePlayer();
+      drawWorld(player.x - W/2, player.y - H/2);
+      requestAnimationFrame(loop);
+    }
+    loop();
+
+    function updatePanel(s) {
+      const level = s.level || "NORMAL";
+      const card = document.getElementById("statusCard");
+      const cm={NORMAL:"normal",CANSADO:"tired",SOMNOLIENTO:"drowsy",ALERTA:"alert"};
+      card.className = "status-card "+(cm[level]||"normal");
+      document.getElementById("levelText").textContent = level;
+      const dm={NORMAL:"Conducción segura",CANSADO:"Respuesta reducida",SOMNOLIENTO:"Perdiendo control...",ALERTA: parkedSafely ? "Estacionado en zona segura" : "Buscando zona segura..."};
+      document.getElementById("levelDesc").textContent = player.crashed ? "Colisión" : (dm[level]||"");
+
+      const kmph = Math.round(speedKmph());
+      const numEl = document.getElementById("speedNum");
+      numEl.textContent = player.crashed ? "0" : kmph;
+      numEl.style.color = kmph > 80 ? "#ea580c" : kmph > 50 ? "#ca8a04" : "#1a1a1a";
+
+      document.getElementById("mEar").textContent = (s.ear||0).toFixed(2);
+      document.getElementById("mPerc").textContent = ((s.perclos||0)*100).toFixed(0)+"%";
+      document.getElementById("mScore").textContent = (s.fatigue_score||0).toFixed(2);
+      document.getElementById("mEyes").textContent = s.eyes_closed ? "Cerrados" : "Abiertos";
+      document.getElementById("mEyes").style.color = s.eyes_closed ? "#dc2626" : "#16a34a";
+    }
+
+    // Expose for bridge.js module
+    window._simOnState = function(s) { driverState = s; updatePanel(s); };
+    window._simOnVideo = function(video) {
+      const vid = document.getElementById("camVid");
+      vid.srcObject = video.srcObject;
+      vid.play();
+      document.getElementById("camPreview").style.display = "block";
+    };
+  </script>
+  <script src="static/detector.js"></script>
+  <script type="module">
+    import { initDetector } from "./static/bridge.js";
+    initDetector({
+      onState(s) { window._simOnState(s); },
+      onVideo(v) { window._simOnVideo(v); },
+    });
+  </script>
+  <script src="static/lang.js"></script>
+</body>
+</html>

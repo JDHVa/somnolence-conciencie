@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Análisis Facial — Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      color: #e8e8e8;
+      font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr 320px;
+    }
+
+    .viewport {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0a;
+      overflow: hidden;
+    }
+    #vid {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: brightness(0.8) contrast(1.1);
+      transition: opacity 0.3s;
+      transform: scaleX(-1);
+    }
+    #vid.hidden { opacity: 0; pointer-events: none; }
+    #overlayCanvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .loading-msg {
+      position: absolute;
+      color: #888;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.8;
+    }
+
+    .panel {
+      background: #1a1a1a;
+      border-left: 1px solid #2a2a2a;
+      padding: 28px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .panel h1 { font-size: 16px; font-weight: 600; color: #fff; }
+    .panel .sub { font-size: 11px; color: #666; margin-top: 2px; }
+
+    .card {
+      background: #222;
+      border-radius: 10px;
+      padding: 16px;
+      border: 1px solid #2a2a2a;
+    }
+    .card .title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+    }
+    .toggle-row .lbl { font-size: 13px; color: #aaa; }
+    .toggle-switch {
+      width: 44px; height: 24px;
+      background: #333;
+      border-radius: 12px;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.2s;
+    }
+    .toggle-switch.on { background: #4ade80; }
+    .toggle-switch .knob {
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 3px; left: 3px;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.on .knob { transform: translateX(20px); }
+
+    .level-big {
+      font-size: 32px;
+      font-weight: 700;
+      text-align: center;
+      padding: 12px 0;
+      transition: color 0.3s;
+    }
+    .level-big.normal { color: #4ade80; }
+    .level-big.tired  { color: #fbbf24; }
+    .level-big.drowsy { color: #fb923c; }
+    .level-big.alert  { color: #f87171; }
+
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 13px;
+    }
+    .metric-row:last-child { border-bottom: none; }
+    .metric-row .lbl { color: #777; }
+    .metric-row .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+    .dot.on { background: #f87171; }
+    .dot.off { background: #333; }
+
+    .footer-bar {
+      margin-top: auto;
+      font-size: 11px;
+      color: #555;
+      text-align: center;
+      padding-top: 12px;
+      border-top: 1px solid #2a2a2a;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="viewport">
+    <video id="vid" autoplay playsinline muted></video>
+    <canvas id="overlayCanvas"></canvas>
+    <div class="loading-msg" id="loadingMsg">Cargando MediaPipe Face Landmarker...<br>Esto puede tomar unos segundos la primera vez.</div>
+  </div>
+
+  <div class="panel">
+    <div>
+      <h1 data-es="Análisis Facial en Vivo" data-en="Live Facial Analysis">Análisis Facial en Vivo</h1>
+      <div class="sub" data-es="478 puntos · MediaPipe Face Landmarker" data-en="478 points · MediaPipe Face Landmarker">478 puntos · MediaPipe Face Landmarker</div>
+    </div>
+
+    <div class="card">
+      <div class="toggle-row">
+        <span class="lbl" data-es="Mostrar cámara" data-en="Show camera">Mostrar cámara</span>
+        <div class="toggle-switch on" id="camToggle" onclick="toggleCam()">
+          <div class="knob"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title" data-es="Estado" data-en="Status">Estado</div>
+      <div id="levelBig" class="level-big normal">NORMAL</div>
+    </div>
+
+    <div class="card">
+      <div class="title" data-es="Métricas biométricas" data-en="Biometric Metrics">Métricas biométricas</div>
+      <div class="metric-row"><span class="lbl">EAR</span><span class="val" id="vEar">0.00</span></div>
+      <div class="metric-row"><span class="lbl">Umbral</span><span class="val" id="vThr">0.22</span></div>
+      <div class="metric-row"><span class="lbl">MAR</span><span class="val" id="vMar">0.00</span></div>
+      <div class="metric-row"><span class="lbl">PERCLOS</span><span class="val" id="vPerc">0%</span></div>
+      <div class="metric-row"><span class="lbl">Score</span><span class="val" id="vScore">0.00</span></div>
+    </div>
+
+    <div class="card">
+      <div class="title" data-es="Pose de cabeza" data-en="Head Pose">Pose de cabeza</div>
+      <div class="metric-row"><span class="lbl">Pitch</span><span class="val" id="vPitch">0°</span></div>
+      <div class="metric-row"><span class="lbl">Yaw</span><span class="val" id="vYaw">0°</span></div>
+      <div class="metric-row"><span class="lbl">Roll</span><span class="val" id="vRoll">0°</span></div>
+    </div>
+
+    <div class="card">
+      <div class="title" data-es="Indicadores" data-en="Indicators">Indicadores</div>
+      <div class="metric-row"><span class="lbl"><span class="dot off" id="dEyes"></span><span data-es="Ojos cerrados" data-en="Eyes closed">Ojos cerrados</span></span><span class="val" id="vEyes">No</span></div>
+      <div class="metric-row"><span class="lbl"><span class="dot off" id="dYawn"></span><span data-es="Bostezo" data-en="Yawn">Bostezo</span></span><span class="val" id="vYawn">No</span></div>
+      <div class="metric-row"><span class="lbl"><span class="dot off" id="dNod"></span><span data-es="Cabeceo" data-en="Head nod">Cabeceo</span></span><span class="val" id="vNod">No</span></div>
+    </div>
+
+    <div class="footer-bar">
+      <span id="lmInfo">0 landmarks · 0 FPS</span>
+    </div>
+  </div>
+
+  <script src="static/detector.js"></script>
+  <script type="module">
+    import { initDetector } from "./static/bridge.js";
+
+    const canvas = document.getElementById("overlayCanvas");
+    const ctx = canvas.getContext("2d");
+    const vidEl = document.getElementById("vid");
+    const loadingMsg = document.getElementById("loadingMsg");
+
+    let showCam = true;
+    let frames = 0, fps = 0, lastSec = Date.now();
+    const alarm = new AlarmPlayerJS();
+
+    window.toggleCam = function() {
+      showCam = !showCam;
+      const tog = document.getElementById("camToggle");
+      tog.className = "toggle-switch " + (showCam ? "on" : "");
+      vidEl.classList.toggle("hidden", !showCam);
+    };
+
+    initDetector({
+      onState(s) {
+        if (s.alert) alarm.start(); else alarm.stop();
+        draw(s);
+        updatePanel(s);
+        frames++;
+        if (Date.now() - lastSec > 1000) { fps = frames; frames = 0; lastSec = Date.now(); }
+      },
+      onVideo(video) {
+        vidEl.srcObject = video.srcObject;
+        vidEl.play();
+      },
+      onReady() {
+        loadingMsg.style.display = "none";
+      },
+    });
+
+    function draw(s) {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width * devicePixelRatio;
+      canvas.height = rect.height * devicePixelRatio;
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      const cw = rect.width, ch = rect.height;
+      ctx.clearRect(0, 0, cw, ch);
+
+      if (!s.face_detected || !s.landmarks || s.landmarks.length === 0) return;
+
+      const vidW = s.frame_width || 640, vidH = s.frame_height || 480;
+      const scale = Math.min(cw / vidW, ch / vidH);
+      const dw = vidW * scale, dh = vidH * scale;
+      const ox = (cw - dw) / 2, oy = (ch - dh) / 2;
+
+      const lms = s.landmarks;
+      // Mirror X for selfie view
+      const px = (i) => (1 - lms[i][0]) * dw + ox;
+      const py = (i) => lms[i][1] * dh + oy;
+
+      ctx.fillStyle = showCam ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.4)";
+      for (let i = 0; i < lms.length; i++) {
+        const x = (1 - lms[i][0]) * dw + ox;
+        const y = lms[i][1] * dh + oy;
+        ctx.beginPath();
+        ctx.arc(x, y, showCam ? 0.8 : 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const eyeColor = s.eyes_closed ? "#f87171" : "#4ade80";
+
+      function drawEye(idxs) {
+        ctx.strokeStyle = eyeColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px(idxs[0]), py(idxs[0]));
+        for (let i = 1; i < idxs.length; i++) ctx.lineTo(px(idxs[i]), py(idxs[i]));
+        ctx.closePath();
+        ctx.stroke();
+
+        ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(px(idxs[1]), py(idxs[1])); ctx.lineTo(px(idxs[5]), py(idxs[5])); ctx.stroke();
+        ctx.strokeStyle = "#a78bfa";
+        ctx.beginPath(); ctx.moveTo(px(idxs[2]), py(idxs[2])); ctx.lineTo(px(idxs[4]), py(idxs[4])); ctx.stroke();
+        ctx.strokeStyle = "#fbbf24"; ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.moveTo(px(idxs[0]), py(idxs[0])); ctx.lineTo(px(idxs[3]), py(idxs[3])); ctx.stroke();
+        ctx.globalAlpha = 1.0;
+        ctx.setLineDash([]);
+
+        for (const i of idxs) {
+          ctx.fillStyle = eyeColor;
+          ctx.beginPath();
+          ctx.arc(px(i), py(i), 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      drawEye(LEFT_EYE);
+      drawEye(RIGHT_EYE);
+
+      const HEAD_POSE = [1, 152, 263, 33, 287, 57];
+      ctx.strokeStyle = "rgba(255,255,255,0.2)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(px(HEAD_POSE[0]), py(HEAD_POSE[0]));
+      for (let i = 1; i < HEAD_POSE.length; i++) ctx.lineTo(px(HEAD_POSE[i]), py(HEAD_POSE[i]));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const nx = px(1), ny = py(1);
+      const ex = nx + ((s.head_yaw||0) / 30) * 60;
+      const ey = ny + ((s.head_pitch||0) / 30) * 60;
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(ex, ey); ctx.stroke();
+    }
+
+    function updatePanel(s) {
+      const lvl = s.level || "NORMAL";
+      const el = document.getElementById("levelBig");
+      el.textContent = lvl;
+      const clsMap = { NORMAL:"normal", CANSADO:"tired", SOMNOLIENTO:"drowsy", ALERTA:"alert" };
+      el.className = "level-big " + (clsMap[lvl] || "normal");
+
+      document.getElementById("vEar").textContent = (s.ear||0).toFixed(3);
+      document.getElementById("vThr").textContent = (s.ear_threshold||0).toFixed(3);
+      document.getElementById("vMar").textContent = (s.mar||0).toFixed(3);
+      document.getElementById("vPerc").textContent = ((s.perclos||0)*100).toFixed(0)+"%";
+      document.getElementById("vScore").textContent = (s.fatigue_score||0).toFixed(3);
+      document.getElementById("vPitch").textContent = (s.head_pitch||0).toFixed(1)+"°";
+      document.getElementById("vYaw").textContent = (s.head_yaw||0).toFixed(1)+"°";
+      document.getElementById("vRoll").textContent = (s.head_roll||0).toFixed(1)+"°";
+
+      const setInd = (dotId, valId, on, txt) => {
+        document.getElementById(dotId).className = "dot " + (on ? "on" : "off");
+        document.getElementById(valId).textContent = txt;
+      };
+      setInd("dEyes", "vEyes", s.eyes_closed, s.eyes_closed ? "Sí" : "No");
+      setInd("dYawn", "vYawn", s.yawning, s.yawning ? "Sí" : "No");
+      setInd("dNod", "vNod", s.head_nodding, s.head_nodding ? "Sí" : "No");
+
+      document.getElementById("lmInfo").textContent =
+        `${(s.landmarks||[]).length} landmarks · ${fps} FPS`;
+    }
+  </script>
+  <script src="static/lang.js"></script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Red Neuronal — Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr 300px;
+    }
+
+    .viewport { position: relative; display: flex; align-items: center; justify-content: center; }
+    #net { width: 100%; height: 100%; display: block; }
+
+    .panel {
+      background: #111; border-left: 1px solid #1e1e1e;
+      padding: 24px 20px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto;
+    }
+    .panel h1 { font-size: 16px; font-weight: 600; color: #fff; }
+    .panel .sub { font-size: 11px; color: #555; margin-top: 2px; }
+
+    .card { background: #181818; border-radius: 10px; padding: 14px; border: 1px solid #222; }
+    .card .title { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #555; margin-bottom: 10px; }
+
+    .pred-big { font-size: 36px; font-weight: 700; text-align: center; padding: 8px 0; transition: color 0.4s; }
+    .pred-big.awake { color: #4ade80; }
+    .pred-big.asleep { color: #f87171; }
+    .pred-sub { text-align: center; font-size: 12px; color: #666; margin-top: 2px; }
+
+    .bar-wrap { margin-top: 10px; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 4px; }
+    .bar-track { height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+
+    .metric-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #222; font-size: 12px; }
+    .metric-row:last-child { border: none; }
+    .metric-row .lbl { color: #666; }
+    .metric-row .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .cam-small { border-radius: 8px; overflow: hidden; border: 1px solid #222; }
+    .cam-small video { width: 100%; display: block; transform: scaleX(-1); }
+    .cam-small .label { text-align: center; padding: 4px; font-size: 10px; color: #555; background: #141414; letter-spacing: 1px; }
+
+    .chart-mini { height: 50px; }
+    .chart-mini canvas { width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+
+  <div class="viewport">
+    <canvas id="net"></canvas>
+  </div>
+
+  <div class="panel">
+    <div>
+      <h1 data-es="CNN en Tiempo Real" data-en="CNN in Real Time">CNN en Tiempo Real</h1>
+      <div class="sub" data-es="Clasificación de somnolencia" data-en="Drowsiness classification">Clasificación de somnolencia</div>
+    </div>
+
+    <div class="card">
+      <div class="title" data-es="Predicción" data-en="Prediction">Predicción</div>
+      <div id="predBig" class="pred-big awake">DESPIERTO</div>
+      <div id="predSub" class="pred-sub">Confianza: 97%</div>
+      <div class="bar-wrap">
+        <div class="bar-label"><span data-es="Despierto" data-en="Awake">Despierto</span><span id="pAwake">97%</span></div>
+        <div class="bar-track"><div id="bAwake" class="bar-fill" style="width:97%;background:#4ade80;"></div></div>
+      </div>
+      <div class="bar-wrap" style="margin-top:8px;">
+        <div class="bar-label"><span data-es="Dormido" data-en="Asleep">Dormido</span><span id="pSleep">3%</span></div>
+        <div class="bar-track"><div id="bSleep" class="bar-fill" style="width:3%;background:#f87171;"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title" data-es="Entrenamiento" data-en="Training">Entrenamiento</div>
+      <div class="metric-row"><span class="lbl" data-es="Época" data-en="Epoch">Época</span><span class="val" id="mEpoch">0</span></div>
+      <div class="metric-row"><span class="lbl">Batch</span><span class="val" id="mBatch">0</span></div>
+      <div class="metric-row"><span class="lbl">Loss</span><span class="val" id="mLoss" style="color:#f87171">0.000</span></div>
+      <div class="metric-row"><span class="lbl">Accuracy</span><span class="val" id="mAcc" style="color:#4ade80">0.0%</span></div>
+      <div class="metric-row"><span class="lbl">Learning Rate</span><span class="val" id="mLr">0.001</span></div>
+    </div>
+
+    <div class="card">
+      <div class="title">Loss</div>
+      <div class="chart-mini"><canvas id="cLoss"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="title">Accuracy</div>
+      <div class="chart-mini"><canvas id="cAcc"></canvas></div>
+    </div>
+
+    <div class="cam-small" id="camSmall" style="display:none;">
+      <video id="camVid" autoplay playsinline muted></video>
+      <div class="label" data-es="INPUT — CÁMARA" data-en="INPUT — CAMERA">INPUT — CÁMARA</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("net");
+    const ctx = canvas.getContext("2d");
+    let W, H;
+
+    function resize() {
+      const r = canvas.parentElement.getBoundingClientRect();
+      canvas.width = r.width * devicePixelRatio;
+      canvas.height = r.height * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      W = r.width; H = r.height;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const layers = [
+      { name: "Entrada", desc: "EAR, MAR, PERCLOS\nPitch, Yaw, Blinks", count: 6, color: "#c084fc" },
+      { name: "Oculta 1", desc: "Dense 32, ReLU", count: 8, color: "#60a5fa" },
+      { name: "Oculta 2", desc: "Dense 16, ReLU", count: 6, color: "#38bdf8" },
+      { name: "Oculta 3", desc: "Dense 8, ReLU", count: 5, color: "#2dd4bf" },
+      { name: "Salida", desc: "Softmax", count: 2, color: "#4ade80", labels: ["Despierto", "Dormido"] },
+    ];
+
+    let neurons = [], connections = [], neuronActivations = [], particles = [];
+
+    function buildNetwork() {
+      neurons = []; connections = []; neuronActivations = [];
+      const padX = 120, padY = 80;
+      const usableW = W - padX * 2;
+      const layerSpacing = usableW / (layers.length - 1);
+
+      for (let l = 0; l < layers.length; l++) {
+        const layer = layers[l];
+        const x = padX + l * layerSpacing;
+        const neuronSpacing = Math.min(60, (H - padY * 2) / (layer.count + 1));
+        const startY = H / 2 - ((layer.count - 1) * neuronSpacing) / 2;
+        for (let n = 0; n < layer.count; n++) {
+          neurons.push({ x, y: startY + n * neuronSpacing, layer: l, idx: n, radius: l === 0 || l === layers.length - 1 ? 18 : 14 });
+          neuronActivations.push(Math.random());
+        }
+      }
+
+      let offset = 0;
+      for (let l = 0; l < layers.length - 1; l++) {
+        const countA = layers[l].count, countB = layers[l + 1].count;
+        const startA = offset, startB = offset + countA;
+        for (let a = 0; a < countA; a++)
+          for (let b = 0; b < countB; b++)
+            connections.push({ from: startA + a, to: startB + b, weight: (Math.random() - 0.5) * 2 });
+        offset += countA;
+      }
+    }
+
+    buildNetwork();
+    window.addEventListener("resize", () => { resize(); buildNetwork(); });
+
+    let driverState = { eyes_closed: false, ear: 0.3, mar: 0.1, perclos: 0, head_pitch: 0, head_yaw: 0, blinks_per_min: 15, level: "NORMAL" };
+    let epoch = 0, batch = 0, loss = 1.5, accuracy = 0.55;
+    const lossHist = [], accHist = [];
+
+    function trainStep() {
+      batch++;
+      if (batch % 25 === 0) epoch++;
+      const tLoss = driverState.eyes_closed ? 0.15 : 0.02;
+      const tAcc = driverState.eyes_closed ? 0.88 : 0.98;
+      loss += (tLoss - loss) * 0.03 + (Math.random() - 0.5) * 0.01;
+      loss = Math.max(0.005, loss);
+      accuracy += (tAcc - accuracy) * 0.03 + (Math.random() - 0.5) * 0.005;
+      accuracy = Math.min(0.999, Math.max(0.5, accuracy));
+      if (driverState.eyes_closed) { loss = Math.min(0.6, loss + 0.015); accuracy = Math.max(0.7, accuracy - 0.008); }
+
+      lossHist.push(loss); accHist.push(accuracy);
+      if (lossHist.length > 150) lossHist.shift();
+      if (accHist.length > 150) accHist.shift();
+
+      document.getElementById("mEpoch").textContent = epoch;
+      document.getElementById("mBatch").textContent = batch;
+      document.getElementById("mLoss").textContent = loss.toFixed(4);
+      document.getElementById("mAcc").textContent = (accuracy * 100).toFixed(1) + "%";
+      document.getElementById("mLr").textContent = (0.001 * Math.pow(0.95, epoch)).toFixed(5);
+    }
+
+    function updateActivations() {
+      const t = Date.now() / 1000;
+      let idx = 0;
+      const inputs = [
+        (driverState.ear || 0.3) / 0.4, (driverState.mar || 0.1) / 0.8,
+        (driverState.perclos || 0) / 0.5, Math.abs(driverState.head_pitch || 0) / 30,
+        Math.abs(driverState.head_yaw || 0) / 30, (driverState.blinks_per_min || 15) / 40,
+      ];
+      for (let i = 0; i < layers[0].count; i++)
+        neuronActivations[idx + i] = Math.min(1, Math.max(0, inputs[i] || 0));
+      idx += layers[0].count;
+
+      for (let l = 1; l < layers.length - 1; l++) {
+        for (let n = 0; n < layers[l].count; n++) {
+          const wave = Math.sin(t * 2.5 + l * 1.2 + n * 0.8) * 0.3 + 0.5;
+          neuronActivations[idx + n] = Math.min(1, Math.max(0,
+            driverState.eyes_closed ? (0.7 + Math.sin(t * 3 + n) * 0.3) : wave));
+        }
+        idx += layers[l].count;
+      }
+
+      const awake = driverState.eyes_closed ? 0.05 + Math.random() * 0.12 : 0.88 + Math.random() * 0.10;
+      neuronActivations[idx] = awake;
+      neuronActivations[idx + 1] = 1 - awake;
+    }
+
+    function spawnParticles() {
+      if (Math.random() > 0.4) return;
+      const ci = Math.floor(Math.random() * connections.length);
+      const c = connections[ci];
+      const from = neurons[c.from];
+      const act = neuronActivations[c.from];
+      if (act < 0.2) return;
+      particles.push({
+        x: from.x, y: from.y, tx: neurons[c.to].x, ty: neurons[c.to].y,
+        progress: 0, speed: 0.015 + Math.random() * 0.02, activation: act, layer: from.layer,
+      });
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.progress += p.speed;
+        p.x += (p.tx - p.x) * p.speed * 3;
+        p.y += (p.ty - p.y) * p.speed * 3;
+        if (p.progress >= 1) particles.splice(i, 1);
+      }
+      if (particles.length > 200) particles.splice(0, particles.length - 200);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      const t = Date.now() / 1000;
+
+      for (const c of connections) {
+        const from = neurons[c.from], to = neurons[c.to];
+        const avg = (neuronActivations[c.from] + neuronActivations[c.to]) / 2;
+        const alpha = 0.03 + avg * 0.12 + Math.sin(t * 2 + c.from * 0.3) * 0.03;
+        ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.2, alpha)})`;
+        ctx.lineWidth = 0.5 + avg; ctx.beginPath();
+        ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+      }
+
+      for (const p of particles) {
+        ctx.fillStyle = layers[p.layer].color;
+        ctx.globalAlpha = (1 - p.progress) * p.activation * 0.9;
+        ctx.shadowColor = layers[p.layer].color; ctx.shadowBlur = 6;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 2.5 + p.activation * 2, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+      }
+
+      let nIdx = 0;
+      for (let l = 0; l < layers.length; l++) {
+        const layer = layers[l];
+        for (let n = 0; n < layer.count; n++) {
+          const neuron = neurons[nIdx], act = neuronActivations[nIdx], r = neuron.radius;
+
+          const glowR = r + 6 + act * 8;
+          const grd = ctx.createRadialGradient(neuron.x, neuron.y, r * 0.5, neuron.x, neuron.y, glowR);
+          grd.addColorStop(0, layer.color + Math.floor(act * 60).toString(16).padStart(2, "0"));
+          grd.addColorStop(1, "transparent");
+          ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(neuron.x, neuron.y, glowR, 0, Math.PI * 2); ctx.fill();
+
+          ctx.beginPath(); ctx.arc(neuron.x, neuron.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = layer.color; ctx.globalAlpha = 0.15 + act * 0.85; ctx.fill(); ctx.globalAlpha = 1;
+          ctx.strokeStyle = layer.color; ctx.lineWidth = 1.5; ctx.stroke();
+
+          ctx.fillStyle = act > 0.5 ? "#000" : "#fff";
+          ctx.font = `bold ${r > 16 ? 11 : 9}px monospace`;
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.fillText(act.toFixed(2), neuron.x, neuron.y);
+
+          if (l === layers.length - 1 && layer.labels) {
+            ctx.fillStyle = n === 0 ? "#4ade80" : "#f87171";
+            ctx.font = "bold 14px -apple-system,sans-serif"; ctx.textAlign = "left";
+            ctx.fillText(layer.labels[n], neuron.x + r + 14, neuron.y + 1);
+            ctx.fillStyle = "#888"; ctx.font = "12px monospace";
+            ctx.fillText((act * 100).toFixed(1) + "%", neuron.x + r + 14, neuron.y + 18);
+          }
+
+          if (l === 0) {
+            const inputLabels = ["EAR", "MAR", "PERCLOS", "Pitch", "Yaw", "Blinks"];
+            ctx.fillStyle = "#c084fc"; ctx.font = "bold 12px -apple-system,sans-serif"; ctx.textAlign = "right";
+            ctx.fillText(inputLabels[n] || "", neuron.x - r - 14, neuron.y + 1);
+            const vals = [
+              (driverState.ear||0).toFixed(2), (driverState.mar||0).toFixed(2),
+              ((driverState.perclos||0)*100).toFixed(0)+"%",
+              (driverState.head_pitch||0).toFixed(0)+"°", (driverState.head_yaw||0).toFixed(0)+"°",
+              (driverState.blinks_per_min||0)+"",
+            ];
+            ctx.fillStyle = "#666"; ctx.font = "11px monospace";
+            ctx.fillText(vals[n] || "", neuron.x - r - 14, neuron.y + 16);
+          }
+          nIdx++;
+        }
+
+        const firstNeuron = neurons[nIdx - layer.count];
+        ctx.fillStyle = layer.color; ctx.font = "bold 13px -apple-system,sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(layer.name, firstNeuron.x, 36);
+        ctx.fillStyle = "#555"; ctx.font = "10px -apple-system,sans-serif";
+        layer.desc.split("\n").forEach((line, i) => ctx.fillText(line, firstNeuron.x, 52 + i * 13));
+      }
+
+      ctx.textAlign = "center";
+      for (let l = 0; l < layers.length - 1; l++) {
+        let offset = 0;
+        for (let i = 0; i <= l; i++) offset += layers[i].count;
+        const midX = (neurons[offset - 1].x + neurons[offset].x) / 2;
+        ctx.fillStyle = `rgba(255,255,255,${0.15 * (Math.sin(t * 4 + l) * 0.3 + 0.7)})`;
+        ctx.font = "20px -apple-system,sans-serif";
+        ctx.fillText("›", midX, H / 2);
+      }
+
+      const lastIdx = neurons.length;
+      const awakeAct = neuronActivations[lastIdx - 2], sleepAct = neuronActivations[lastIdx - 1];
+      const pred = document.getElementById("predBig"), sub = document.getElementById("predSub");
+      if (awakeAct > sleepAct) {
+        pred.textContent = "DESPIERTO"; pred.className = "pred-big awake";
+        sub.textContent = `Confianza: ${(awakeAct*100).toFixed(1)}%`;
+      } else {
+        pred.textContent = "DORMIDO"; pred.className = "pred-big asleep";
+        sub.textContent = `Confianza: ${(sleepAct*100).toFixed(1)}%`;
+      }
+      document.getElementById("pAwake").textContent = (awakeAct*100).toFixed(1)+"%";
+      document.getElementById("bAwake").style.width = (awakeAct*100)+"%";
+      document.getElementById("pSleep").textContent = (sleepAct*100).toFixed(1)+"%";
+      document.getElementById("bSleep").style.width = (sleepAct*100)+"%";
+    }
+
+    function drawMiniChart(id, data, color) {
+      const c = document.getElementById(id);
+      const parent = c.parentElement;
+      const cW = parent.clientWidth, cH = 50;
+      c.width = cW * devicePixelRatio; c.height = cH * devicePixelRatio;
+      const cx = c.getContext("2d");
+      cx.scale(devicePixelRatio, devicePixelRatio);
+      cx.clearRect(0, 0, cW, cH);
+      if (data.length < 2) return;
+
+      let mn = Infinity, mx = -Infinity;
+      for (const v of data) { if (v < mn) mn = v; if (v > mx) mx = v; }
+      const rng = Math.max(0.01, mx - mn);
+      const x = i => (i/(data.length-1))*cW;
+      const y = v => (1-(v-mn)/rng)*(cH-8)+4;
+
+      cx.beginPath(); cx.moveTo(x(0), cH);
+      for (let i=0;i<data.length;i++) cx.lineTo(x(i),y(data[i]));
+      cx.lineTo(x(data.length-1), cH);
+      cx.fillStyle = color.replace(")",",0.1)").replace("rgb","rgba"); cx.fill();
+
+      cx.beginPath(); cx.moveTo(x(0),y(data[0]));
+      for (let i=1;i<data.length;i++) cx.lineTo(x(i),y(data[i]));
+      cx.strokeStyle = color; cx.lineWidth = 1.5; cx.stroke();
+    }
+
+    function mainLoop() {
+      trainStep();
+      updateActivations();
+      for (let i = 0; i < 3; i++) spawnParticles();
+      updateParticles();
+      draw();
+      drawMiniChart("cLoss", lossHist, "rgb(248,113,113)");
+      drawMiniChart("cAcc", accHist, "rgb(74,222,128)");
+      requestAnimationFrame(mainLoop);
+    }
+    mainLoop();
+
+    window._neuralSetState = function(s) { driverState = s; };
+    window._neuralSetVideo = function(video) {
+      const vid = document.getElementById("camVid");
+      vid.srcObject = video.srcObject;
+      vid.play();
+      document.getElementById("camSmall").style.display = "block";
+    };
+  </script>
+  <script src="static/detector.js"></script>
+  <script type="module">
+    import { initDetector } from "./static/bridge.js";
+    initDetector({
+      onState(s) { window._neuralSetState(s); },
+      onVideo(video) { window._neuralSetVideo(video); },
+    });
+  </script>
+  <script src="static/lang.js"></script>
+</body>
+</html>

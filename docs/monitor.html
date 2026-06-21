@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Monitor — Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #fafaf8;
+      color: #1a1a1a;
+      font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 64px 1fr;
+    }
+
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e8e5de;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 { font-size: 16px; font-weight: 600; }
+    .header-right { display: flex; gap: 28px; align-items: center; }
+    .header-stat { text-align: right; }
+    .header-stat .num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .header-stat .lbl { font-size: 10px; color: #999; letter-spacing: 1px; text-transform: uppercase; }
+
+    .status-pill { padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .pill-normal { background: #ecfdf5; color: #16a34a; }
+    .pill-tired  { background: #fffbeb; color: #ca8a04; }
+    .pill-drowsy { background: #fff7ed; color: #ea580c; }
+    .pill-alert  { background: #fef2f2; color: #dc2626; }
+
+    .main { display: grid; grid-template-columns: 1fr 300px; overflow: hidden; }
+
+    .charts { display: grid; grid-template-rows: 1fr 1fr 1fr 1fr; padding: 20px 24px; gap: 12px; }
+    .chart-row {
+      background: #fff; border: 1px solid #eee; border-radius: 10px;
+      display: grid; grid-template-columns: 120px 1fr 90px; align-items: center; overflow: hidden;
+    }
+    .chart-label { padding: 0 16px; border-right: 1px solid #f0eeea; }
+    .chart-label .name { font-size: 14px; font-weight: 600; }
+    .chart-label .desc { font-size: 10px; color: #999; margin-top: 2px; }
+    .chart-label .name.c1 { color: #16a34a; }
+    .chart-label .name.c2 { color: #ca8a04; }
+    .chart-label .name.c3 { color: #ea580c; }
+    .chart-label .name.c4 { color: #dc2626; }
+
+    .chart-area { height: 100%; padding: 8px 4px; position: relative; }
+    .chart-area svg { width: 100%; height: 100%; display: block; }
+
+    .chart-val { text-align: right; padding: 0 16px; border-left: 1px solid #f0eeea; }
+    .chart-val .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .chart-val .u { font-size: 10px; color: #bbb; }
+
+    .side {
+      background: #fff; border-left: 1px solid #e8e5de; padding: 20px;
+      display: flex; flex-direction: column; gap: 16px; overflow-y: auto;
+    }
+    .side-card { background: #fafaf8; border: 1px solid #eee; border-radius: 10px; padding: 16px; }
+    .side-card .title { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #bbb; margin-bottom: 10px; }
+
+    .level-display { text-align: center; padding: 16px 0; }
+    .level-display .name { font-size: 36px; font-weight: 700; transition: color 0.3s; }
+    .lv-normal { color: #16a34a; }
+    .lv-tired  { color: #ca8a04; }
+    .lv-drowsy { color: #ea580c; }
+    .lv-alert  { color: #dc2626; }
+    .level-display .desc { font-size: 12px; color: #999; margin-top: 4px; }
+
+    .event-list { max-height: 200px; overflow: hidden; }
+    .event-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; border-bottom: 1px solid #f0eeea; font-size: 12px;
+      animation: slideIn 0.3s ease;
+    }
+    @keyframes slideIn { from { opacity:0; transform:translateX(8px); } to { opacity:1; transform:translateX(0); } }
+    .event-item .time { color: #ccc; font-size: 10px; min-width: 36px; font-variant-numeric: tabular-nums; }
+    .ev-blink { color: #16a34a; }
+    .ev-yawn  { color: #ca8a04; }
+    .ev-nod   { color: #ea580c; }
+    .ev-alert { color: #dc2626; font-weight: 600; }
+
+    .indicator-row {
+      display: flex; justify-content: space-between; padding: 6px 0;
+      border-bottom: 1px solid #f0eeea; font-size: 12px; color: #777;
+    }
+    .indicator-row:last-child { border: none; }
+    .ind-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .ind-dot.on  { background: #f87171; }
+    .ind-dot.off { background: #e5e5e5; }
+
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1 data-es="Monitor de Señales" data-en="Signal Monitor">Monitor de Señales</h1>
+    <div class="header-right">
+      <div class="header-stat"><div class="num" id="hUp">0:00</div><div class="lbl" data-es="Tiempo" data-en="Time">Tiempo</div></div>
+      <div class="header-stat"><div class="num" id="hBlinks">0</div><div class="lbl" data-es="Parpadeos" data-en="Blinks">Parpadeos</div></div>
+      <div class="header-stat"><div class="num" id="hYawns">0</div><div class="lbl" data-es="Bostezos" data-en="Yawns">Bostezos</div></div>
+      <span id="pill" class="status-pill pill-normal">NORMAL</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="charts">
+      <div class="chart-row">
+        <div class="chart-label"><div class="name c1">EAR</div><div class="desc" data-es="Apertura ocular" data-en="Eye opening">Apertura ocular</div></div>
+        <div class="chart-area"><svg id="svgEar" viewBox="0 0 1000 100" preserveAspectRatio="none"></svg></div>
+        <div class="chart-val"><div class="v" id="vEar" style="color:#16a34a">0.00</div><div class="u">ratio</div></div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label"><div class="name c2">MAR</div><div class="desc" data-es="Apertura bucal" data-en="Mouth opening">Apertura bucal</div></div>
+        <div class="chart-area"><svg id="svgMar" viewBox="0 0 1000 100" preserveAspectRatio="none"></svg></div>
+        <div class="chart-val"><div class="v" id="vMar" style="color:#ca8a04">0.00</div><div class="u">ratio</div></div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label"><div class="name c3">PERCLOS</div><div class="desc" data-es="% cierre / 30s" data-en="% closure / 30s">% cierre / 30s</div></div>
+        <div class="chart-area"><svg id="svgPerc" viewBox="0 0 1000 100" preserveAspectRatio="none"></svg></div>
+        <div class="chart-val"><div class="v" id="vPerc" style="color:#ea580c">0%</div><div class="u">porcentaje</div></div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label"><div class="name c4" data-es="Fatiga" data-en="Fatigue">Fatiga</div><div class="desc" data-es="Score combinado" data-en="Combined score">Score combinado</div></div>
+        <div class="chart-area"><svg id="svgScore" viewBox="0 0 1000 100" preserveAspectRatio="none"></svg></div>
+        <div class="chart-val"><div class="v" id="vScore" style="color:#dc2626">0.00</div><div class="u">0 → 1</div></div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="side-card">
+        <div class="title" data-es="Estado actual" data-en="Current Status">Estado actual</div>
+        <div class="level-display">
+          <div class="name lv-normal" id="lvName">NORMAL</div>
+          <div class="desc" id="lvDesc">Conductor atento</div>
+        </div>
+      </div>
+      <div class="side-card">
+        <div class="title" data-es="Indicadores" data-en="Indicators">Indicadores</div>
+        <div class="indicator-row"><span><span class="ind-dot off" id="iEyes"></span><span data-es="Ojos cerrados" data-en="Eyes closed">Ojos cerrados</span></span></div>
+        <div class="indicator-row"><span><span class="ind-dot off" id="iYawn"></span><span data-es="Bostezando" data-en="Yawning">Bostezando</span></span></div>
+        <div class="indicator-row"><span><span class="ind-dot off" id="iNod"></span><span data-es="Cabeceando" data-en="Head nodding">Cabeceando</span></span></div>
+      </div>
+      <div class="side-card" style="flex:1; overflow:hidden;">
+        <div class="title" data-es="Eventos recientes" data-en="Recent Events">Eventos recientes</div>
+        <div class="event-list" id="eventLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const HSEC = 30;
+    function svgEl(tag, a) { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in a) e.setAttribute(k, a[k]); return e; }
+
+    function drawChart(id, data, color, maxV, thresh) {
+      const s = document.getElementById(id); s.innerHTML = "";
+      if (!data || data.length < 2) return;
+      const W=1000, H=100, tMax=data[data.length-1][0], tMin=Math.max(0,tMax-HSEC);
+      const x=t=>((t-tMin)/HSEC)*W, y=v=>H-(v/maxV)*(H-8)-4;
+
+      if (thresh != null) s.appendChild(svgEl("line",{x1:0,y1:y(thresh),x2:W,y2:y(thresh),stroke:"#e8e5de","stroke-width":"1","stroke-dasharray":"4,4"}));
+
+      let area=`M ${x(data[0][0])} ${H} `;
+      data.forEach(d=>{area+=`L ${x(d[0])} ${y(d[1])} `});
+      area+=`L ${x(data[data.length-1][0])} ${H} Z`;
+      s.appendChild(svgEl("path",{d:area,fill:color,"fill-opacity":"0.08"}));
+
+      let path=`M ${x(data[0][0])} ${y(data[0][1])}`;
+      for(let i=1;i<data.length;i++) path+=` L ${x(data[i][0])} ${y(data[i][1])}`;
+      s.appendChild(svgEl("path",{d:path,stroke:color,"stroke-width":"2",fill:"none"}));
+
+      const last=data[data.length-1];
+      s.appendChild(svgEl("circle",{cx:x(last[0]),cy:y(last[1]),r:3,fill:color}));
+    }
+
+    let prevEC=false, prevYw=false, prevNd=false, prevLv="NORMAL";
+    let blinkC=0, yawnC=0, blinkStart=null;
+    const events=[], t0=Date.now();
+    const fmtT=ms=>{const s=Math.floor(ms/1000),m=Math.floor(s/60);return`${m}:${(s%60).toString().padStart(2,"0")}`};
+
+    function pushEv(cls, txt) {
+      events.unshift({cls,txt,t:fmtT(Date.now()-t0)});
+      if(events.length>8) events.pop();
+      const log=document.getElementById("eventLog"); log.innerHTML="";
+      events.forEach(e=>{
+        const d=document.createElement("div"); d.className="event-item";
+        d.innerHTML=`<span class="time">${e.t}</span><span class="ev-${e.cls}">${e.txt}</span>`;
+        log.appendChild(d);
+      });
+    }
+
+    function tick(s) {
+      if(s.eyes_closed&&!prevEC) blinkStart=Date.now();
+      if(!s.eyes_closed&&prevEC&&blinkStart){const d=Date.now()-blinkStart;if(d>=80&&d<=500){blinkC++;pushEv("blink",`Parpadeo (${d}ms)`);}blinkStart=null;}
+      if(s.yawning&&!prevYw){yawnC++;pushEv("yawn","Bostezo detectado");}
+      if(s.head_nodding&&!prevNd) pushEv("nod",`Cabeceo (${(s.head_pitch||0).toFixed(0)}°)`);
+      if(s.level!==prevLv&&s.level==="ALERTA") pushEv("alert","Alerta: somnolencia");
+      prevEC=s.eyes_closed; prevYw=s.yawning; prevNd=s.head_nodding; prevLv=s.level;
+
+      document.getElementById("hUp").textContent=fmtT(Date.now()-t0);
+      document.getElementById("hBlinks").textContent=blinkC;
+      document.getElementById("hYawns").textContent=yawnC;
+
+      const lvl=s.level||"NORMAL";
+      const pill=document.getElementById("pill");
+      pill.textContent=lvl;
+      const pm={NORMAL:"pill-normal",CANSADO:"pill-tired",SOMNOLIENTO:"pill-drowsy",ALERTA:"pill-alert"};
+      pill.className="status-pill "+(pm[lvl]||"pill-normal");
+
+      document.getElementById("vEar").textContent=(s.ear||0).toFixed(3);
+      document.getElementById("vMar").textContent=(s.mar||0).toFixed(3);
+      document.getElementById("vPerc").textContent=((s.perclos||0)*100).toFixed(0)+"%";
+      document.getElementById("vScore").textContent=(s.fatigue_score||0).toFixed(2);
+
+      const lm={NORMAL:"lv-normal",CANSADO:"lv-tired",SOMNOLIENTO:"lv-drowsy",ALERTA:"lv-alert"};
+      const n=document.getElementById("lvName"); n.textContent=lvl; n.className="name "+(lm[lvl]||"lv-normal");
+      const descs={NORMAL:"Conductor atento",CANSADO:"Fatiga leve",SOMNOLIENTO:"Fatiga elevada",ALERTA:"¡Detén el vehículo!"};
+      document.getElementById("lvDesc").textContent=descs[lvl]||"";
+
+      document.getElementById("iEyes").className="ind-dot "+(s.eyes_closed?"on":"off");
+      document.getElementById("iYawn").className="ind-dot "+(s.yawning?"on":"off");
+      document.getElementById("iNod").className="ind-dot "+(s.head_nodding?"on":"off");
+
+      const h=s.history||{};
+      drawChart("svgEar",h.ear,"#16a34a",0.45,s.ear_threshold);
+      drawChart("svgMar",h.mar,"#ca8a04",0.8,0.55);
+      drawChart("svgPerc",h.perclos,"#ea580c",1.0,0.4);
+      drawChart("svgScore",h.score,"#dc2626",1.0,0.8);
+    }
+
+    window._monitorTick = tick;
+  </script>
+  <script src="static/detector.js"></script>
+  <script type="module">
+    import { initDetector } from "./static/bridge.js";
+    initDetector({ onState(s) { window._monitorTick(s); } });
+  </script>
+  <script src="static/lang.js"></script>
+</body>
+</html>

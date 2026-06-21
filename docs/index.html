@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Stand — Detección de Somnolencia</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #f2f0eb; color: #1a1a1a;
+      font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+    .sub { font-size: 14px; color: #999; margin-bottom: 48px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 700px; width: 100%; padding: 0 24px; }
+    .card {
+      background: #fff; border: 1px solid #e8e5de; border-radius: 14px;
+      padding: 32px 28px; cursor: pointer; transition: all 0.2s ease;
+      text-decoration: none; color: inherit; display: block;
+    }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); border-color: #d0cdc6; }
+    .card .icon { font-size: 32px; margin-bottom: 14px; }
+    .card .name { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+    .card .desc { font-size: 13px; color: #999; line-height: 1.5; }
+    .footer { position: fixed; bottom: 24px; font-size: 12px; color: #ccc; letter-spacing: 0.5px; }
+    #langToggle { color: #333 !important; background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.15) !important; }
+  </style>
+</head>
+<body>
+
+  <h1 data-es="Detección de Somnolencia" data-en="Drowsiness Detection">Detección de Somnolencia</h1>
+  <p class="sub" data-es="Selecciona una vista para el monitor" data-en="Select a view for the monitor">Selecciona una vista para el monitor</p>
+  <div class="grid">
+    <a class="card" href="xray.html">
+      <div class="icon">◎</div>
+      <div class="name" data-es="Análisis Facial" data-en="Facial Analysis">Análisis Facial</div>
+      <div class="desc" data-es="478 landmarks en tiempo real sobre el rostro del conductor." data-en="478 real-time landmarks on the driver's face.">478 landmarks en tiempo real sobre el rostro del conductor.</div>
+    </a>
+    <a class="card" href="conv.html">
+      <div class="icon">▦</div>
+      <div class="name" data-es="Pipeline de Procesamiento" data-en="Processing Pipeline">Pipeline de Procesamiento</div>
+      <div class="desc" data-es="Captura → Bordes → Landmarks → Cálculo EAR paso a paso." data-en="Capture → Edges → Landmarks → EAR calculation step by step.">Captura → Bordes → Landmarks → Cálculo EAR paso a paso.</div>
+    </a>
+    <a class="card" href="monitor.html">
+      <div class="icon">⊿</div>
+      <div class="name" data-es="Monitor de Señales" data-en="Signal Monitor">Monitor de Señales</div>
+      <div class="desc" data-es="Gráficas en tiempo real de EAR, MAR, PERCLOS y fatiga." data-en="Real-time graphs of EAR, MAR, PERCLOS and fatigue.">Gráficas en tiempo real de EAR, MAR, PERCLOS y fatiga.</div>
+    </a>
+    <a class="card" href="sim.html">
+      <div class="icon">◍</div>
+      <div class="name" data-es="Simulación de Auto" data-en="Car Simulation">Simulación de Auto</div>
+      <div class="desc" data-es="Mini-ciudad donde el auto reacciona al nivel de fatiga del conductor." data-en="Mini-city where the car reacts to the driver's fatigue level.">Mini-ciudad donde el auto reacciona al nivel de fatiga del conductor.</div>
+    </a>
+    <a class="card" href="neural.html">
+      <div class="icon">⧉</div>
+      <div class="name" data-es="Red Neuronal (CNN)" data-en="Neural Network (CNN)">Red Neuronal (CNN)</div>
+      <div class="desc" data-es="Visualiza el entrenamiento en vivo: capas, neuronas, clasificación." data-en="Visualize live training: layers, neurons, classification.">Visualiza el entrenamiento en vivo: capas, neuronas, clasificación.</div>
+    </a>
+  </div>
+
+  <div class="footer">100% Browser · WebCam + MediaPipe · Stand Visual v2</div>
+  <script src="static/lang.js"></script>
+</body>
+</html>
